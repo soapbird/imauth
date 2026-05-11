@@ -63,6 +63,10 @@ impl BrowserHandle {
     pub fn browser(&self) -> &CdpBrowser {
         self.browser.as_ref().unwrap()
     }
+
+    pub async fn pages(&self) -> crate::Result<Vec<chromiumoxide::Page>> {
+        self.browser().pages().await
+    }
 }
 
 impl Drop for BrowserHandle {

@@ -192,11 +192,13 @@ impl AuthService for AuthGrpcService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        let page = handle
-            .browser()
-            .new_page()
+        // Reuse existing page from the browser session instead of opening a new tab
+        let pages = handle
+            .pages()
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(|e| Status::internal(format!("Failed to list pages: {e}")))?;
+        let page = pages.into_iter().next()
+            .ok_or_else(|| Status::internal("No browser page found — the 2FA page may have been closed"))?;
 
         let auth = get_platform_auth(platform);
         auth.submit_2fa(&page, &req.code, &mut session

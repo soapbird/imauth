@@ -33,6 +33,13 @@ impl CdpBrowser {
             .map_err(|e| ImauthError::Browser(format!("Failed to create page: {e}")))
     }
 
+    pub async fn pages(&self) -> crate::Result<Vec<chromiumoxide::Page>> {
+        self.browser
+            .pages()
+            .await
+            .map_err(|e| ImauthError::Browser(format!("Failed to list pages: {e}")))
+    }
+
     pub async fn close(mut self) -> crate::Result<()> {
         self.browser
             .close()
