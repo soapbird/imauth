@@ -6,14 +6,12 @@ use crate::cli::{Cli, Commands};
 use crate::grpc::{AuthGrpcService, CredentialGrpcService, SessionGrpcService};
 use clap::Parser;
 use generated::v1::{
-    auth_service_server::AuthServiceServer,
-    credential_service_server::CredentialServiceServer,
+    auth_service_server::AuthServiceServer, credential_service_server::CredentialServiceServer,
     session_service_server::SessionServiceServer,
 };
 use imauth_core::ImauthCore;
 use std::sync::Arc;
 use tonic::transport::Server;
-use tracing_subscriber;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

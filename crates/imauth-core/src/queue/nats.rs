@@ -35,10 +35,7 @@ impl NatsQueue {
         })
     }
 
-    pub async fn publish_auth_job(
-        &self,
-        job: &AuthJob,
-    ) -> crate::Result<()> {
+    pub async fn publish_auth_job(&self, job: &AuthJob) -> crate::Result<()> {
         let payload = serde_json::to_vec(job)
             .map_err(|e| ImauthError::Queue(format!("JSON serialize error: {e}")))?;
         self.js
@@ -48,10 +45,7 @@ impl NatsQueue {
         Ok(())
     }
 
-    pub async fn publish_refresh_job(
-        &self,
-        job: &RefreshJob,
-    ) -> crate::Result<()> {
+    pub async fn publish_refresh_job(&self, job: &RefreshJob) -> crate::Result<()> {
         let payload = serde_json::to_vec(job)
             .map_err(|e| ImauthError::Queue(format!("JSON serialize error: {e}")))?;
         self.js
@@ -61,10 +55,7 @@ impl NatsQueue {
         Ok(())
     }
 
-    pub async fn publish_validate_job(
-        &self,
-        job: &ValidateJob,
-    ) -> crate::Result<()> {
+    pub async fn publish_validate_job(&self, job: &ValidateJob) -> crate::Result<()> {
         let payload = serde_json::to_vec(job)
             .map_err(|e| ImauthError::Queue(format!("JSON serialize error: {e}")))?;
         self.js

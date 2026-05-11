@@ -2,12 +2,12 @@ mod generated;
 
 use clap::{Parser, Subcommand};
 use generated::v1::{
-    auth_service_client::AuthServiceClient,
-    credential_service_client::CredentialServiceClient,
-    session_service_client::SessionServiceClient,
-    DeleteCredentialRequest, ExportRequest, GetCookiesRequest, GetCredentialRequest,
-    LoginRequest, SaveCredentialRequest, StatusRequest, Submit2FaRequest,
+    auth_service_client::AuthServiceClient, credential_service_client::CredentialServiceClient,
+    session_service_client::SessionServiceClient, AuthStatus, DeleteCredentialRequest,
+    ExportRequest, GetCookiesRequest, GetCredentialRequest, LoginRequest, SaveCredentialRequest,
+    StatusRequest, Submit2FaRequest,
 };
+use std::io::{self, Write};
 use tonic::transport::Channel;
 
 #[derive(Parser)]
@@ -29,10 +29,16 @@ enum Commands {
         platform: String,
         #[arg(short, long)]
         username: String,
-        #[arg(short, long)]
+        #[arg(short = 'w', long)]
         password: String,
-        #[arg(long)]
-        twofa: Option<String>,
+        #[arg(
+            long = "2fa",
+            visible_alias = "twofa",
+            value_name = "CODE",
+            num_args = 0..=1,
+            default_missing_value = ""
+        )]
+        twofa: Option<Option<String>>,
     },
     /// Check session status
     Status {
@@ -65,7 +71,7 @@ enum CredentialAction {
         platform: String,
         #[arg(short, long)]
         username: String,
-        #[arg(short, long)]
+        #[arg(short = 'w', long)]
         password: String,
         #[arg(long)]
         twofa_method: Option<String>,
@@ -80,12 +86,23 @@ enum CredentialAction {
     },
 }
 
-fn platform_to_proto(platform: &str) -> i32 {
+fn platform_to_proto(platform: &str) -> Result<i32, String> {
     match platform.to_lowercase().as_str() {
-        "instagram" => 1,
-        "threads" => 2,
-        _ => 0,
+        "instagram" => Ok(1),
+        "threads" => Ok(2),
+        other => Err(format!(
+            "Unknown platform '{other}'. Expected one of: instagram, threads"
+        )),
     }
+}
+
+fn read_2fa_code() -> io::Result<String> {
+    print!("Enter 2FA code: ");
+    io::stdout().flush()?;
+
+    let mut code = String::new();
+    io::stdin().read_line(&mut code)?;
+    Ok(code.trim().to_string())
 }
 
 #[tokio::main]
@@ -105,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut client = AuthServiceClient::new(channel.clone());
 
             let request = tonic::Request::new(LoginRequest {
-                platform: platform_to_proto(&platform),
+                platform: platform_to_proto(&platform)?,
                 username,
                 password,
             });
@@ -119,17 +136,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if event.requires_input {
                     match event.input_type.as_str() {
                         "2fa_code" => {
-                            if let Some(code) = &twofa {
+                            let code = match &twofa {
+                                Some(Some(code)) if !code.is_empty() => Some(code.clone()),
+                                Some(_) => Some(read_2fa_code()?),
+                                None => None,
+                            };
+
+                            if let Some(code) = code {
                                 let mut client = AuthServiceClient::new(channel.clone());
                                 let resp = client
                                     .submit2_fa(tonic::Request::new(Submit2FaRequest {
                                         session_id: event.session_id.clone(),
-                                        code: code.clone(),
+                                        code,
                                     }))
                                     .await?;
-                                println!("2FA response: {:?}", resp.into_inner());
+                                let resp = resp.into_inner();
+                                println!(
+                                    "2FA response: success={} session_id={} message={} cookies={}",
+                                    resp.success,
+                                    resp.session_id,
+                                    resp.message,
+                                    resp.cookies.len()
+                                );
+                                break;
                             } else {
-                                println!("2FA required but no code provided. Use --2fa");
+                                println!("2FA required but no code provided. Use --2fa <CODE> or --2fa to enter it interactively.");
                                 break;
                             }
                         }
@@ -141,15 +172,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
 
-                if event.status == 7 {
-                    // Connected
-                    println!("Login successful! Cookies: {}", event.cookies.len());
-                    break;
-                }
-                if event.status == 8 {
-                    // Failed
-                    println!("Login failed: {}", event.message);
-                    break;
+                match AuthStatus::try_from(event.status) {
+                    Ok(AuthStatus::Connected) => {
+                        println!("Login successful! Cookies: {}", event.cookies.len());
+                        break;
+                    }
+                    Ok(AuthStatus::Failed) => {
+                        println!("Login failed: {}", event.message);
+                        break;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -168,20 +200,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if format == "netscape" {
                 let resp = client
                     .export_netscape(tonic::Request::new(ExportRequest {
-                        platform: platform_to_proto(&platform),
+                        platform: platform_to_proto(&platform)?,
                     }))
                     .await?;
                 println!("{}", resp.into_inner().content);
             } else {
                 let resp = client
                     .get_cookies(tonic::Request::new(GetCookiesRequest {
-                        platform: platform_to_proto(&platform),
+                        platform: platform_to_proto(&platform)?,
                         domains: vec![],
                     }))
                     .await?;
                 let cookies = resp.into_inner().cookies;
                 for c in cookies {
-                    println!("{}={} (domain: {}, path: {})", c.name, c.value, c.domain, c.path);
+                    println!(
+                        "{}={} (domain: {}, path: {})",
+                        c.name, c.value, c.domain, c.path
+                    );
                 }
             }
         }
@@ -197,7 +232,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } => {
                     let resp = client
                         .save(tonic::Request::new(SaveCredentialRequest {
-                            platform: platform_to_proto(&platform),
+                            platform: platform_to_proto(&platform)?,
                             username,
                             password,
                             twofa_method: twofa_method.unwrap_or_default(),
@@ -208,7 +243,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 CredentialAction::Get { platform } => {
                     let resp = client
                         .get(tonic::Request::new(GetCredentialRequest {
-                            platform: platform_to_proto(&platform),
+                            platform: platform_to_proto(&platform)?,
                         }))
                         .await?;
                     println!("{:#?}", resp.into_inner());
@@ -216,7 +251,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 CredentialAction::Delete { platform } => {
                     let resp = client
                         .delete(tonic::Request::new(DeleteCredentialRequest {
-                            platform: platform_to_proto(&platform),
+                            platform: platform_to_proto(&platform)?,
                         }))
                         .await?;
                     println!("{:#?}", resp.into_inner());

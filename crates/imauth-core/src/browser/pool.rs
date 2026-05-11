@@ -20,8 +20,7 @@ impl BrowserPool {
         }
     }
 
-    pub async fn acquire(&self,
-    ) -> crate::Result<BrowserHandle> {
+    pub async fn acquire(&self) -> crate::Result<BrowserHandle> {
         let _permit = self
             .semaphore
             .clone()

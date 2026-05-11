@@ -91,6 +91,17 @@ fn default_data_dir() -> PathBuf {
         .join("data")
 }
 
+fn expand_tilde(path: PathBuf) -> PathBuf {
+    let Some(s) = path.to_str() else { return path };
+    let Some(rest) = s.strip_prefix("~/") else {
+        return path;
+    };
+    match dirs::home_dir() {
+        Some(home) => home.join(rest),
+        None => path,
+    }
+}
+
 fn default_interval_secs() -> u64 {
     3600
 }
@@ -130,37 +141,80 @@ impl Default for Config {
 
 impl Config {
     pub fn from_file(path: &std::path::Path) -> crate::Result<Self> {
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| crate::ImauthError::Config(format!("Failed to read config file: {e}")))?;
-        let mut cfg: Config = toml::from_str(&content)
-            .map_err(|e| crate::ImauthError::Config(format!("Failed to parse config: {e}")))?;
+        let mut cfg = if path.exists() {
+            let content = std::fs::read_to_string(path).map_err(|e| {
+                crate::ImauthError::Config(format!("Failed to read config file: {e}"))
+            })?;
+            toml::from_str(&content)
+                .map_err(|e| crate::ImauthError::Config(format!("Failed to parse config: {e}")))?
+        } else {
+            Self::default()
+        };
 
-        // Override with env vars
+        cfg.apply_env_overrides();
+        Ok(cfg)
+    }
+
+    fn apply_env_overrides(&mut self) {
         if let Ok(addr) = std::env::var("IMAUTH_GRPC_ADDR") {
-            cfg.server.grpc_addr = addr;
+            self.server.grpc_addr = addr;
         }
         if let Ok(url) = std::env::var("IMAUTH_NATS_URL") {
-            cfg.nats.url = url;
+            self.nats.url = url;
         }
         if let Ok(url) = std::env::var("IMAUTH_CDP_URL") {
-            cfg.browser.cdp_url = url;
+            self.browser.cdp_url = url;
         }
         if let Ok(key) = std::env::var("IMAUTH_ENCRYPTION_KEY") {
-            cfg.security.encryption_key = Some(key);
+            self.security.encryption_key = Some(key);
         }
         if let Ok(dir) = std::env::var("IMAUTH_DATA_DIR") {
-            cfg.storage.data_dir = PathBuf::from(dir);
+            self.storage.data_dir = PathBuf::from(dir);
         }
 
-        Ok(cfg)
+        if self.security.encryption_key.as_deref() == Some("") {
+            self.security.encryption_key = None;
+        }
+        self.storage.data_dir = expand_tilde(std::mem::take(&mut self.storage.data_dir));
     }
 
     pub fn load() -> crate::Result<Self> {
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-        let path = home.join(".imauth").join("config.toml");
+        let dir = home.join(".imauth");
+        let path = dir.join("config.toml");
+
+        if !path.exists() {
+            std::fs::create_dir_all(&dir).map_err(|e| {
+                crate::ImauthError::Config(format!(
+                    "Failed to create config dir {}: {e}",
+                    dir.display()
+                ))
+            })?;
+
+            let toml = toml::to_string_pretty(&Self::default()).map_err(|e| {
+                crate::ImauthError::Config(format!("Failed to serialize config: {e}"))
+            })?;
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(mut file) => {
+                    use std::io::Write;
+                    file.write_all(toml.as_bytes()).map_err(|e| {
+                        crate::ImauthError::Config(format!("Failed to write default config: {e}"))
+                    })?;
+                    tracing::info!("Created default config at {}", path.display());
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => {
+                    return Err(crate::ImauthError::Config(format!(
+                        "Failed to create default config: {e}"
+                    )))
+                }
+            }
+        }
+
         Self::from_file(&path)
     }
 
@@ -190,6 +244,10 @@ impl Config {
 
     pub fn cookies_dir(&self) -> PathBuf {
         self.storage.data_dir.join("cookies")
+    }
+
+    pub fn snapshot_dir(&self) -> PathBuf {
+        self.storage.data_dir.join("snapshots")
     }
 
     pub fn encryption_key(&self) -> Option<&str> {

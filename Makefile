@@ -1,4 +1,4 @@
-.PHONY: all build test lint fmt check clean proto docker
+.PHONY: all build test lint fmt check clean proto docker up down
 
 all: build
 
@@ -26,8 +26,17 @@ proto:
 docker:
 	docker build -t imauth:latest .
 
+up:
+	docker compose up -d
+
+down:
+	docker compose down
+
 run-server:
 	cargo run --release -p imauth-server -- serve
 
 run-cli-login:
-	cargo run --release -p imauth-cli -- login --platform instagram --username user --password pass
+	cargo run --release -p imauth-cli -- login --platform instagram --username user -w pass
+
+start-local:
+	@./scripts/start-local.sh

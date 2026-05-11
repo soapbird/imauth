@@ -1,17 +1,16 @@
 use crate::generated::v1::{
-    AuthEvent, AuthResponse, AuthStatus as ProtoAuthStatus, AuthStatusResponse, CancelRequest,
-    Cookie as ProtoCookie, CookieList, ConnectionStatusMap, CredentialInfo, CredentialResponse,
-    DeleteCredentialRequest, Empty, ExportRequest, GetCookiesRequest, GetCredentialRequest,
-    LoginRequest, NetscapeExport, SaveCredentialRequest, StatusRequest, Submit2FaRequest,
-    SubmitCaptchaRequest, UpdateCookiesRequest, ValidateRequest, ValidationResult,
-    auth_service_server::AuthService,
-    credential_service_server::CredentialService,
-    session_service_server::SessionService,
+    auth_service_server::AuthService, credential_service_server::CredentialService,
+    session_service_server::SessionService, AuthEvent, AuthResponse, AuthStatus as ProtoAuthStatus,
+    AuthStatusResponse, CancelRequest, ConnectionStatusMap, Cookie as ProtoCookie, CookieList,
+    CredentialInfo, CredentialResponse, DeleteCredentialRequest, Empty, ExportRequest,
+    GetCookiesRequest, GetCredentialRequest, LoginRequest, NetscapeExport, SaveCredentialRequest,
+    StatusRequest, Submit2FaRequest, SubmitCaptchaRequest, UpdateCookiesRequest, ValidateRequest,
+    ValidationResult,
 };
 use futures::Stream;
 use imauth_core::{
-    platform::{get_platform_auth, Platform},
-    session::state::{Cookie, SessionState},
+    platform::{instagram, Platform},
+    session::state::{Cookie, Session, SessionState},
     ImauthCore,
 };
 use std::pin::Pin;
@@ -29,11 +28,23 @@ impl AuthGrpcService {
     }
 }
 
-fn proto_platform_to_string(p: i32) -> String {
+fn platform_from_proto(p: i32) -> Option<Platform> {
     match p {
-        1 => "instagram".to_string(),
-        2 => "threads".to_string(),
-        _ => "unknown".to_string(),
+        1 => Some(Platform::Instagram),
+        2 => Some(Platform::Threads),
+        _ => None,
+    }
+}
+
+fn auth_event_from(session: &Session, cookies: Vec<ProtoCookie>) -> AuthEvent {
+    AuthEvent {
+        session_id: session.id.clone(),
+        status: session_state_to_proto(&session.state) as i32,
+        message: session.message.clone().unwrap_or_default(),
+        requires_input: session.requires_input,
+        input_type: session.input_type.clone().unwrap_or_default(),
+        cookies,
+        screenshot: vec![],
     }
 }
 
@@ -76,47 +87,36 @@ fn proto_cookie_from(c: &ProtoCookie) -> Cookie {
 
 #[tonic::async_trait]
 impl AuthService for AuthGrpcService {
-    type LoginStream =
-        Pin<Box<dyn Stream<Item = Result<AuthEvent, Status>> + Send>>;
+    type LoginStream = Pin<Box<dyn Stream<Item = Result<AuthEvent, Status>> + Send>>;
 
     async fn login(
         &self,
         request: Request<LoginRequest>,
     ) -> Result<Response<Self::LoginStream>, Status> {
         let req = request.into_inner();
-        let platform_str = proto_platform_to_string(req.platform);
-        let platform = Platform::from_str(&platform_str)
+        let platform = platform_from_proto(req.platform)
             .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
+        let platform_str = platform.as_str().to_string();
 
         let core = self.core.clone();
         let (tx, rx) = mpsc::channel(10);
+        let snapshot_dir = core.config.snapshot_dir();
 
         tokio::spawn(async move {
             let mut session = match core.create_session(platform_str.clone()).await {
                 Ok(s) => s,
                 Err(e) => {
                     let _ = tx
-                        .send(Err(Status::internal(format!("Failed to create session: {e}"))))
+                        .send(Err(Status::internal(format!(
+                            "Failed to create session: {e}"
+                        ))))
                         .await;
                     return;
                 }
             };
 
-            let session_id = session.id.clone();
+            let _ = tx.send(Ok(auth_event_from(&session, vec![]))).await;
 
-            // Send initial event
-            let event = AuthEvent {
-                session_id: session_id.clone(),
-                status: session_state_to_proto(&session.state) as i32,
-                message: session.message.clone().unwrap_or_default(),
-                requires_input: session.requires_input,
-                input_type: session.input_type.clone().unwrap_or_default(),
-                cookies: vec![],
-                screenshot: vec![],
-            };
-            let _ = tx.send(Ok(event)).await;
-
-            // Acquire browser
             let handle = match core.browser_manager.acquire().await {
                 Ok(h) => h,
                 Err(e) => {
@@ -137,33 +137,27 @@ impl AuthService for AuthGrpcService {
                 }
             };
 
-            let auth = get_platform_auth(platform);
-            if let Err(e) = auth.login(&page, &req.username, &req.password, &mut session
-            ).await {
+            if let Err(e) = instagram::login(
+                &page,
+                platform,
+                &req.username,
+                &req.password,
+                &mut session,
+                Some(snapshot_dir.as_path()),
+            )
+            .await
+            {
                 session.transition(SessionState::Failed, Some(e.to_string()));
             }
 
-            // Save session state
             let _ = core.update_session(&session).await;
 
-            // Save cookies on success
             if session.state == SessionState::Connected {
-                let _ = core
-                    .cookie_jar
-                    .save(&platform_str, &session.cookies)
-                    .await;
+                let _ = core.cookie_jar.save(&platform_str, &session.cookies).await;
             }
 
-            let event = AuthEvent {
-                session_id: session.id.clone(),
-                status: session_state_to_proto(&session.state) as i32,
-                message: session.message.clone().unwrap_or_default(),
-                requires_input: session.requires_input,
-                input_type: session.input_type.clone().unwrap_or_default(),
-                cookies: session.cookies.iter().map(cookie_to_proto).collect(),
-                screenshot: vec![],
-            };
-            let _ = tx.send(Ok(event)).await;
+            let cookies = session.cookies.iter().map(cookie_to_proto).collect();
+            let _ = tx.send(Ok(auth_event_from(&session, cookies))).await;
         });
 
         let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
@@ -192,16 +186,22 @@ impl AuthService for AuthGrpcService {
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
-        // Reuse existing page from the browser session instead of opening a new tab
         let pages = handle
             .pages()
             .await
             .map_err(|e| Status::internal(format!("Failed to list pages: {e}")))?;
-        let page = pages.into_iter().next()
-            .ok_or_else(|| Status::internal("No browser page found — the 2FA page may have been closed"))?;
+        let page = pages.into_iter().next().ok_or_else(|| {
+            Status::internal("No browser page found — the 2FA page may have been closed")
+        })?;
 
-        let auth = get_platform_auth(platform);
-        auth.submit_2fa(&page, &req.code, &mut session
+        let snapshot_dir = core.config.snapshot_dir();
+
+        instagram::submit_2fa(
+            &page,
+            platform,
+            &req.code,
+            &mut session,
+            Some(snapshot_dir.as_path()),
         )
         .await
         .map_err(|e| Status::internal(e.to_string()))?;
@@ -229,7 +229,6 @@ impl AuthService for AuthGrpcService {
         &self,
         _request: Request<SubmitCaptchaRequest>,
     ) -> Result<Response<AuthResponse>, Status> {
-        // Captcha solving not yet implemented
         Ok(Response::new(AuthResponse {
             success: false,
             session_id: String::new(),
@@ -295,7 +294,9 @@ impl SessionService for SessionGrpcService {
         request: Request<GetCookiesRequest>,
     ) -> Result<Response<CookieList>, Status> {
         let req = request.into_inner();
-        let platform = proto_platform_to_string(req.platform);
+        let platform = platform_from_proto(req.platform)
+            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?
+            .as_str();
         let domains: Option<Vec<&str>> = if req.domains.is_empty() {
             None
         } else {
@@ -305,7 +306,7 @@ impl SessionService for SessionGrpcService {
         let cookies = self
             .core
             .cookie_jar
-            .get(&platform, domains.as_deref())
+            .get(platform, domains.as_deref())
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -319,12 +320,14 @@ impl SessionService for SessionGrpcService {
         request: Request<UpdateCookiesRequest>,
     ) -> Result<Response<CookieList>, Status> {
         let req = request.into_inner();
-        let platform = proto_platform_to_string(req.platform);
-        let cookies: Vec<Cookie> = req.cookies.iter().map(|c| proto_cookie_from(c)).collect();
+        let platform = platform_from_proto(req.platform)
+            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?
+            .as_str();
+        let cookies: Vec<Cookie> = req.cookies.iter().map(proto_cookie_from).collect();
 
         self.core
             .cookie_jar
-            .save(&platform, &cookies)
+            .save(platform, &cookies)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -338,12 +341,14 @@ impl SessionService for SessionGrpcService {
         request: Request<ExportRequest>,
     ) -> Result<Response<NetscapeExport>, Status> {
         let req = request.into_inner();
-        let platform = proto_platform_to_string(req.platform);
+        let platform = platform_from_proto(req.platform)
+            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?
+            .as_str();
 
         let content = self
             .core
             .cookie_jar
-            .export_netscape(&platform)
+            .export_netscape(platform)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -355,29 +360,25 @@ impl SessionService for SessionGrpcService {
         request: Request<ValidateRequest>,
     ) -> Result<Response<ValidationResult>, Status> {
         let req = request.into_inner();
-        let platform_str = proto_platform_to_string(req.platform);
-        let platform = Platform::from_str(&platform_str)
+        let platform = platform_from_proto(req.platform)
             .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
 
         let cookies = self
             .core
             .cookie_jar
-            .get(&platform_str, None)
+            .get(platform.as_str(), None)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let session_cookie_name = platform.session_cookie_name();
         let session_cookie = cookies.iter().find(|c| c.name == session_cookie_name);
 
-        let valid = session_cookie.is_some();
-        let expires_at = session_cookie
-            .and_then(|c| c.expires)
-            .map(|dt| dt.timestamp())
-            .unwrap_or(0);
-
         Ok(Response::new(ValidationResult {
-            valid,
-            expires_at,
+            valid: session_cookie.is_some(),
+            expires_at: session_cookie
+                .and_then(|c| c.expires)
+                .map(|dt| dt.timestamp())
+                .unwrap_or(0),
             session_cookie_name: session_cookie_name.to_string(),
         }))
     }
@@ -386,19 +387,16 @@ impl SessionService for SessionGrpcService {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<ConnectionStatusMap>, Status> {
-        let mut platforms = std::collections::HashMap::new();
+        let jar = &self.core.cookie_jar;
+        let fetches = Platform::ALL
+            .iter()
+            .map(|p| async move { (*p, jar.get(p.as_str(), None).await.unwrap_or_default()) });
+        let results = futures::future::join_all(fetches).await;
 
-        for p in ["instagram", "threads"] {
-            let cookies = self
-                .core
-                .cookie_jar
-                .get(p, None)
-                .await
-                .unwrap_or_default();
-            let platform = Platform::from_str(p).unwrap();
-            let connected = cookies.iter().any(|c| c.name == platform.session_cookie_name());
-            platforms.insert(p.to_string(), connected);
-        }
+        let platforms = results
+            .into_iter()
+            .map(|(p, cookies)| (p.as_str().to_string(), p.has_session_cookie(&cookies)))
+            .collect();
 
         Ok(Response::new(ConnectionStatusMap { platforms }))
     }
@@ -421,12 +419,14 @@ impl CredentialService for CredentialGrpcService {
         request: Request<SaveCredentialRequest>,
     ) -> Result<Response<CredentialResponse>, Status> {
         let req = request.into_inner();
-        let platform = proto_platform_to_string(req.platform);
+        let platform = platform_from_proto(req.platform)
+            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?
+            .as_str();
 
         self.core
             .credential_store
             .save(
-                &platform,
+                platform,
                 &req.username,
                 &req.password,
                 if req.twofa_method.is_empty() {
@@ -450,12 +450,14 @@ impl CredentialService for CredentialGrpcService {
         request: Request<GetCredentialRequest>,
     ) -> Result<Response<CredentialInfo>, Status> {
         let req = request.into_inner();
-        let platform = proto_platform_to_string(req.platform);
+        let platform = platform_from_proto(req.platform)
+            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?
+            .as_str();
 
         let cred = self
             .core
             .credential_store
-            .get(&platform)
+            .get(platform)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 
@@ -475,11 +477,13 @@ impl CredentialService for CredentialGrpcService {
         request: Request<DeleteCredentialRequest>,
     ) -> Result<Response<CredentialResponse>, Status> {
         let req = request.into_inner();
-        let platform = proto_platform_to_string(req.platform);
+        let platform = platform_from_proto(req.platform)
+            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?
+            .as_str();
 
         self.core
             .credential_store
-            .delete(&platform)
+            .delete(platform)
             .await
             .map_err(|e| Status::internal(e.to_string()))?;
 

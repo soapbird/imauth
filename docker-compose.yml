@@ -1,0 +1,56 @@
+services:
+  nats:
+    image: nats:2.10-alpine
+    ports:
+      - "${IMAUTH_NATS_HOST_PORT:-4222}:4222"
+    command: "--jetstream --http_port 8222"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8222/healthz"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  chrome:
+    image: gcr.io/zenika-hub/alpine-chrome:latest
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - >
+        chromium-browser
+        --headless=new
+        --disable-gpu
+        --disable-dev-shm-usage
+        --remote-debugging-port=9222
+        --no-sandbox
+        &
+        exec nc -lk -p 9223 -e nc 127.0.0.1 9222
+    ports:
+      - "${IMAUTH_CDP_HOST_PORT:-9222}:9223"
+      - "${IMAUTH_GRPC_HOST_PORT:-50051}:50051"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:9223/json/version"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    network_mode: "service:chrome"
+    environment:
+      - IMAUTH_NATS_URL=nats://nats:4222
+      - IMAUTH_CDP_URL=http://127.0.0.1:9222
+      - IMAUTH_GRPC_ADDR=0.0.0.0:50051
+      - IMAUTH_DATA_DIR=/data/.imauth/data
+    volumes:
+      - imauth-data:/data/.imauth
+    depends_on:
+      nats:
+        condition: service_healthy
+      chrome:
+        condition: service_healthy
+    command: ["serve"]
+
+volumes:
+  imauth-data:

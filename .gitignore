@@ -11,7 +11,7 @@ crates/imauth-cli/src/generated/imauth.v1.rs
 .vscode/
 *.swp
 *.swo
-*~
+*.kilo/
 
 # OS
 .DS_Store

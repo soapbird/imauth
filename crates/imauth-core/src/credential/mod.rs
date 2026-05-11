@@ -1,7 +1,7 @@
 pub mod encryption;
 
-use encryption::AesGcmEncryption;
 use crate::ImauthError;
+use encryption::AesGcmEncryption;
 use sqlx::SqlitePool;
 
 pub struct Credential {
@@ -69,10 +69,7 @@ impl CredentialStore {
         Ok(())
     }
 
-    pub async fn get(
-        &self,
-        platform: &str,
-    ) -> crate::Result<Option<Credential>> {
+    pub async fn get(&self, platform: &str) -> crate::Result<Option<Credential>> {
         let row: Option<(String, String, String, Option<String>)> = sqlx::query_as(
             "SELECT platform, username, password_encrypted, twofa_method FROM credentials WHERE platform = ?",
         )
@@ -81,12 +78,14 @@ impl CredentialStore {
         .await
         .map_err(|e| ImauthError::Database(e.to_string()))?;
 
-        Ok(row.map(|(platform, username, password_encrypted, twofa_method)| Credential {
-            platform,
-            username,
-            password_encrypted,
-            twofa_method,
-        }))
+        Ok(row.map(
+            |(platform, username, password_encrypted, twofa_method)| Credential {
+                platform,
+                username,
+                password_encrypted,
+                twofa_method,
+            },
+        ))
     }
 
     pub async fn get_decrypted_password(

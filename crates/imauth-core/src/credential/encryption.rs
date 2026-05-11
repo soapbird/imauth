@@ -11,9 +11,9 @@ pub struct AesGcmEncryption {
 
 impl AesGcmEncryption {
     pub fn from_key(key: &str) -> crate::Result<Self> {
-        let key_bytes = BASE64.decode(key).map_err(|_| {
-            crate::ImauthError::Encryption("Invalid base64 key".to_string())
-        })?;
+        let key_bytes = BASE64
+            .decode(key)
+            .map_err(|_| crate::ImauthError::Encryption("Invalid base64 key".to_string()))?;
         if key_bytes.len() != 32 {
             return Err(crate::ImauthError::Encryption(
                 "Key must be 32 bytes (256 bits)".to_string(),
@@ -27,12 +27,10 @@ impl AesGcmEncryption {
     pub fn generate_key() -> String {
         let mut key = [0u8; 32];
         rand::thread_rng().fill(&mut key);
-        BASE64.encode(&key)
+        BASE64.encode(key)
     }
 
-    pub fn encrypt(&self,
-        plaintext: &str,
-    ) -> crate::Result<String> {
+    pub fn encrypt(&self, plaintext: &str) -> crate::Result<String> {
         let mut nonce_bytes = [0u8; 12];
         rand::thread_rng().fill(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
@@ -45,12 +43,10 @@ impl AesGcmEncryption {
         Ok(BASE64.encode(&result))
     }
 
-    pub fn decrypt(&self,
-        ciphertext: &str,
-    ) -> crate::Result<String> {
-        let data = BASE64.decode(ciphertext).map_err(|_| {
-            crate::ImauthError::Encryption("Invalid base64 ciphertext".to_string())
-        })?;
+    pub fn decrypt(&self, ciphertext: &str) -> crate::Result<String> {
+        let data = BASE64
+            .decode(ciphertext)
+            .map_err(|_| crate::ImauthError::Encryption("Invalid base64 ciphertext".to_string()))?;
         if data.len() < 12 {
             return Err(crate::ImauthError::Encryption(
                 "Ciphertext too short".to_string(),
@@ -62,9 +58,8 @@ impl AesGcmEncryption {
             .cipher
             .decrypt(nonce, encrypted)
             .map_err(|e| crate::ImauthError::Encryption(e.to_string()))?;
-        String::from_utf8(plaintext).map_err(|e| {
-            crate::ImauthError::Encryption(format!("Invalid UTF-8: {e}"))
-        })
+        String::from_utf8(plaintext)
+            .map_err(|e| crate::ImauthError::Encryption(format!("Invalid UTF-8: {e}")))
     }
 }
 
@@ -78,7 +73,8 @@ impl FernetCompat {
         // requires the `fernet` crate. For now, this is a placeholder that returns
         // an error directing the user to migrate or use the fernet crate.
         Err(crate::ImauthError::Encryption(
-            "Fernet decryption not implemented. Use fernet crate or migrate credentials.".to_string(),
+            "Fernet decryption not implemented. Use fernet crate or migrate credentials."
+                .to_string(),
         ))
     }
 }

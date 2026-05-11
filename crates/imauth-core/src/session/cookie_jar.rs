@@ -38,10 +38,17 @@ impl CookieJar {
         Ok(())
     }
 
-    pub async fn save(&self,
-        platform: &str,
-        cookies: &[Cookie],
-    ) -> crate::Result<()> {
+    pub async fn save(&self, platform: &str, cookies: &[Cookie]) -> crate::Result<()> {
+        if cookies.is_empty() {
+            return Ok(());
+        }
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| ImauthError::Database(e.to_string()))?;
+
         for cookie in cookies {
             let expires = cookie.expires.map(|dt| dt.timestamp());
             sqlx::query(
@@ -65,10 +72,14 @@ impl CookieJar {
             .bind(expires)
             .bind(cookie.http_only as i32)
             .bind(cookie.secure as i32)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| ImauthError::Database(e.to_string()))?;
         }
+
+        tx.commit()
+            .await
+            .map_err(|e| ImauthError::Database(e.to_string()))?;
         Ok(())
     }
 
@@ -83,7 +94,9 @@ impl CookieJar {
                 "SELECT name, value, domain, path, expires, http_only, secure FROM cookies WHERE platform = ? AND domain IN ({})",
                 placeholders
             );
-            let mut q = sqlx::query_as::<_, (String, String, String, String, Option<i64>, i32, i32)>(&query);
+            let mut q = sqlx::query_as::<_, (String, String, String, String, Option<i64>, i32, i32)>(
+                &query,
+            );
             q = q.bind(platform);
             for d in domains {
                 q = q.bind(d);
@@ -101,22 +114,22 @@ impl CookieJar {
         rows.map_err(|e| ImauthError::Database(e.to_string()))
             .map(|rows| {
                 rows.into_iter()
-                    .map(|(name, value, domain, path, expires, http_only, secure)| Cookie {
-                        name,
-                        value,
-                        domain,
-                        path,
-                        expires: expires.and_then(|ts| chrono::DateTime::from_timestamp(ts, 0)),
-                        http_only: http_only != 0,
-                        secure: secure != 0,
-                    })
+                    .map(
+                        |(name, value, domain, path, expires, http_only, secure)| Cookie {
+                            name,
+                            value,
+                            domain,
+                            path,
+                            expires: expires.and_then(|ts| chrono::DateTime::from_timestamp(ts, 0)),
+                            http_only: http_only != 0,
+                            secure: secure != 0,
+                        },
+                    )
                     .collect()
             })
     }
 
-    pub async fn export_netscape(&self,
-        platform: &str,
-    ) -> crate::Result<String> {
+    pub async fn export_netscape(&self, platform: &str) -> crate::Result<String> {
         let cookies = self.get(platform, None).await?;
         let mut lines = vec![
             "# Netscape HTTP Cookie File".to_string(),
@@ -124,15 +137,11 @@ impl CookieJar {
         ];
 
         for cookie in cookies {
-            let domain = cookie.domain.clone();
-            let host_only = !domain.starts_with('.');
-            let expires = cookie
-                .expires
-                .map(|dt| dt.timestamp())
-                .unwrap_or(0);
+            let host_only = !cookie.domain.starts_with('.');
+            let expires = cookie.expires.map(|dt| dt.timestamp()).unwrap_or(0);
             lines.push(format!(
                 "{domain}\t{host_only}\t{path}\t{secure}\t{expires}\t{name}\t{value}",
-                domain = domain,
+                domain = cookie.domain,
                 host_only = if host_only { "TRUE" } else { "FALSE" },
                 path = cookie.path,
                 secure = if cookie.secure { "TRUE" } else { "FALSE" },

@@ -7,6 +7,12 @@ pub struct RefreshScheduler {
     platforms: HashMap<Platform, Duration>,
 }
 
+impl Default for RefreshScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RefreshScheduler {
     pub fn new() -> Self {
         Self {
@@ -14,18 +20,12 @@ impl RefreshScheduler {
         }
     }
 
-    pub fn add_platform(
-        &mut self,
-        platform: Platform,
-        interval_secs: u64,
-    ) {
+    pub fn add_platform(&mut self, platform: Platform, interval_secs: u64) {
         self.platforms
             .insert(platform, Duration::from_secs(interval_secs));
     }
 
-    pub fn get_interval(&self,
-        platform: Platform,
-    ) -> Option<Duration> {
+    pub fn get_interval(&self, platform: Platform) -> Option<Duration> {
         self.platforms.get(&platform).copied()
     }
 
@@ -38,7 +38,9 @@ impl RefreshScheduler {
 pub async fn run_refresh_loop(
     platform: Platform,
     duration: Duration,
-    mut callback: impl FnMut(Platform) -> futures::future::BoxFuture<'static, crate::Result<()>> + Send + 'static,
+    mut callback: impl FnMut(Platform) -> futures::future::BoxFuture<'static, crate::Result<()>>
+        + Send
+        + 'static,
 ) {
     let mut ticker = interval(duration);
     loop {

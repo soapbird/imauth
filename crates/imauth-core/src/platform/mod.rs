@@ -1,9 +1,7 @@
 pub mod instagram;
 pub mod selectors;
-pub mod threads;
 
-use crate::session::state::Session;
-use chromiumoxide::page::Page;
+use crate::session::state::Cookie;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Platform {
@@ -12,6 +10,9 @@ pub enum Platform {
 }
 
 impl Platform {
+    pub const ALL: &'static [Platform] = &[Platform::Instagram, Platform::Threads];
+
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "instagram" => Some(Platform::Instagram),
@@ -27,72 +28,38 @@ impl Platform {
         }
     }
 
-    pub fn cookie_domains(&self) -> Vec<&'static str> {
+    pub fn cookie_domains(&self) -> &'static [&'static str] {
         match self {
-            Platform::Instagram => {
-                vec![
-                    ".instagram.com",
-                    ".threads.net",
-                    ".threads.com",
-                ]
-            }
-            Platform::Threads => {
-                vec![
-                    ".instagram.com",
-                    ".threads.net",
-                    ".threads.com",
-                ]
+            Platform::Instagram | Platform::Threads => {
+                &[".instagram.com", ".threads.net", ".threads.com"]
             }
         }
     }
 
     pub fn session_cookie_name(&self) -> &'static str {
         match self {
-            Platform::Instagram => "sessionid",
-            Platform::Threads => "sessionid",
-        }
-    }
-}
-
-pub enum PlatformAuth {
-    Instagram,
-    Threads,
-}
-
-impl PlatformAuth {
-    pub fn for_platform(platform: Platform) -> Self {
-        match platform {
-            Platform::Instagram => PlatformAuth::Instagram,
-            Platform::Threads => PlatformAuth::Threads,
+            Platform::Instagram | Platform::Threads => "sessionid",
         }
     }
 
-    pub async fn login(
-        &self,
-        page: &Page,
-        username: &str,
-        password: &str,
-        session: &mut Session,
-    ) -> crate::Result<()> {
-        match self {
-            PlatformAuth::Instagram => instagram::login(page, username, password, session).await,
-            PlatformAuth::Threads => threads::login(page, username, password, session).await,
-        }
+    fn cookie_matches_domain(&self, cookie: &Cookie) -> bool {
+        let cookie_domain = cookie.domain.trim_start_matches('.');
+        self.cookie_domains()
+            .iter()
+            .any(|allow| cookie_domain.eq_ignore_ascii_case(allow.trim_start_matches('.')))
     }
 
-    pub async fn submit_2fa(
-        &self,
-        page: &Page,
-        code: &str,
-        session: &mut Session,
-    ) -> crate::Result<()> {
-        match self {
-            PlatformAuth::Instagram => instagram::submit_2fa(page, code, session).await,
-            PlatformAuth::Threads => threads::submit_2fa(page, code, session).await,
-        }
+    pub fn filter_cookies(&self, cookies: Vec<Cookie>) -> Vec<Cookie> {
+        cookies
+            .into_iter()
+            .filter(|c| self.cookie_matches_domain(c))
+            .collect()
     }
-}
 
-pub fn get_platform_auth(platform: Platform) -> PlatformAuth {
-    PlatformAuth::for_platform(platform)
+    pub fn has_session_cookie(&self, cookies: &[Cookie]) -> bool {
+        let name = self.session_cookie_name();
+        cookies
+            .iter()
+            .any(|c| c.name == name && self.cookie_matches_domain(c))
+    }
 }

@@ -6,6 +6,7 @@ pub mod platform;
 pub mod queue;
 pub mod refresh;
 pub mod session;
+pub mod snapshot;
 
 pub use config::Config;
 pub use error::{ImauthError, Result};
@@ -30,13 +31,20 @@ pub struct ImauthCore {
 impl ImauthCore {
     pub async fn new(config: Config) -> Result<Self> {
         let db_path = config.db_path();
-        std::fs::create_dir_all(db_path.parent().unwrap())
-            .map_err(ImauthError::Io)?;
+        let db_dir = db_path.parent().ok_or_else(|| {
+            ImauthError::Config(format!(
+                "db_path {} has no parent directory",
+                db_path.display()
+            ))
+        })?;
+        std::fs::create_dir_all(db_dir).map_err(ImauthError::Io)?;
 
-        let db_url = format!("sqlite:{}", db_path.display());
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&db_path)
+            .create_if_missing(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
-            .connect(&db_url)
+            .connect_with(options)
             .await
             .map_err(|e| ImauthError::Database(e.to_string()))?;
 
@@ -47,20 +55,21 @@ impl ImauthCore {
         cookie_jar.init().await?;
 
         let encryption = {
-            let key = config.encryption_key().map(|s| s.to_string()).unwrap_or_else(|| {
-                let key = credential::encryption::AesGcmEncryption::generate_key();
-                tracing::warn!("No encryption key configured; generated a temporary one");
-                key
-            });
+            let key = config
+                .encryption_key()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| {
+                    let key = credential::encryption::AesGcmEncryption::generate_key();
+                    tracing::warn!("No encryption key configured; generated a temporary one");
+                    key
+                });
             credential::encryption::AesGcmEncryption::from_key(&key)?
         };
         let credential_store = CredentialStore::new(pool.clone(), encryption);
         credential_store.init().await?;
 
-        let browser_manager = BrowserManager::new(
-            config.cdp_url().to_string(),
-            config.max_pool_size(),
-        );
+        let browser_manager =
+            BrowserManager::new(config.cdp_url().to_string(), config.max_pool_size());
 
         Ok(Self {
             config,
@@ -112,10 +121,7 @@ impl ImauthCore {
         Ok(())
     }
 
-    pub async fn create_session(
-        &self,
-        platform: String,
-    ) -> Result<Session> {
+    pub async fn create_session(&self, platform: String) -> Result<Session> {
         let id = uuid::Uuid::new_v4().to_string();
         let session = Session::new(id, platform);
         let mut sessions = self.sessions.write().await;
@@ -123,27 +129,18 @@ impl ImauthCore {
         Ok(session)
     }
 
-    pub async fn get_session(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<Session>> {
+    pub async fn get_session(&self, session_id: &str) -> Result<Option<Session>> {
         let sessions = self.sessions.read().await;
         Ok(sessions.get(session_id).cloned())
     }
 
-    pub async fn update_session(
-        &self,
-        session: &Session,
-    ) -> Result<()> {
+    pub async fn update_session(&self, session: &Session) -> Result<()> {
         let mut sessions = self.sessions.write().await;
         sessions.insert(session.id.clone(), session.clone());
         Ok(())
     }
 
-    pub async fn delete_session(
-        &self,
-        session_id: &str,
-    ) -> Result<()> {
+    pub async fn delete_session(&self, session_id: &str) -> Result<()> {
         let mut sessions = self.sessions.write().await;
         sessions.remove(session_id);
         Ok(())
@@ -156,10 +153,9 @@ mod tests {
 
     #[test]
     fn session_proto_uses_correct_korean_export_comment() {
-        let proto_path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../proto/imauth/v1/session.proto");
-        let proto = fs::read_to_string(&proto_path)
-            .expect("session.proto should be readable");
+        let proto_path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../proto/imauth/v1/session.proto");
+        let proto = fs::read_to_string(&proto_path).expect("session.proto should be readable");
 
         assert!(
             proto.contains("Netscape 포맷으로 쿠키 내보내기"),
@@ -167,7 +163,7 @@ mod tests {
             proto_path.display()
         );
         assert!(
-            !proto.contains("Netscape 포맷으로 쿠키 낳보기"),
+            !proto.contains("Netscape 포맷으로 쿠키 내보기"),
             "expected old Korean typo to be removed from {}",
             proto_path.display()
         );
