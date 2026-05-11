@@ -10,7 +10,7 @@ service AuthService {
   // 2FA 코드 제출
   rpc Submit2FA(Submit2FARequest) returns (AuthResponse);
 
-  // 캡챠 해결 제출
+  // 캡차 해결 제출
   rpc SubmitCaptcha(SubmitCaptchaRequest) returns (AuthResponse);
 
   // 현재 세션 상태 조회
