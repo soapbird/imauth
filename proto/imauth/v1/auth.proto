@@ -1,0 +1,69 @@
+syntax = "proto3";
+package imauth.v1;
+
+import "imauth/v1/common.proto";
+
+service AuthService {
+  // 로그인 시작 (동기식 - 결과 스트리밍)
+  rpc Login(LoginRequest) returns (stream AuthEvent);
+
+  // 2FA 코드 제출
+  rpc Submit2FA(Submit2FARequest) returns (AuthResponse);
+
+  // 캡챠 해결 제출
+  rpc SubmitCaptcha(SubmitCaptchaRequest) returns (AuthResponse);
+
+  // 현재 세션 상태 조회
+  rpc GetStatus(StatusRequest) returns (AuthStatusResponse);
+
+  // 세션 취소
+  rpc Cancel(CancelRequest) returns (AuthResponse);
+}
+
+message LoginRequest {
+  Platform platform = 1;
+  string username = 2;
+  string password = 3;
+}
+
+message AuthEvent {
+  AuthStatus status = 1;
+  string message = 2;
+  bool requires_input = 3;
+  string input_type = 4;  // "2fa_code", "captcha", "creds"
+  repeated Cookie cookies = 5;
+  bytes screenshot = 6;   // base64 인코딩 스크린샷 (interactive 모드)
+}
+
+message Submit2FARequest {
+  string session_id = 1;
+  string code = 2;
+}
+
+message SubmitCaptchaRequest {
+  string session_id = 1;
+  string solution = 2;
+}
+
+message AuthResponse {
+  bool success = 1;
+  string session_id = 2;
+  string message = 3;
+  repeated Cookie cookies = 4;
+}
+
+message StatusRequest {
+  string session_id = 1;
+}
+
+message AuthStatusResponse {
+  string session_id = 1;
+  AuthStatus status = 2;
+  string message = 3;
+  bool requires_input = 4;
+  string input_type = 5;
+}
+
+message CancelRequest {
+  string session_id = 1;
+}

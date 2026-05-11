@@ -1,0 +1,57 @@
+syntax = "proto3";
+package imauth.v1;
+
+import "imauth/v1/common.proto";
+
+service SessionService {
+  // 저장된 쿠키 조회
+  rpc GetCookies(GetCookiesRequest) returns (CookieList);
+
+  // 쿠키 업데이트/추가
+  rpc UpdateCookies(UpdateCookiesRequest) returns (CookieList);
+
+  // Netscape 포맷으로 쿠키 낳보기
+  rpc ExportNetscape(ExportRequest) returns (NetscapeExport);
+
+  // 세션 쿠키 유효성 검증
+  rpc ValidateSession(ValidateRequest) returns (ValidationResult);
+
+  // 플랫폼별 연결 상태 조회
+  rpc GetConnectionStatus(Empty) returns (ConnectionStatusMap);
+}
+
+message GetCookiesRequest {
+  Platform platform = 1;
+  repeated string domains = 2;
+}
+
+message CookieList {
+  repeated Cookie cookies = 1;
+}
+
+message UpdateCookiesRequest {
+  Platform platform = 2;
+  repeated Cookie cookies = 3;
+}
+
+message ExportRequest {
+  Platform platform = 1;
+}
+
+message NetscapeExport {
+  string content = 1;
+}
+
+message ValidateRequest {
+  Platform platform = 1;
+}
+
+message ValidationResult {
+  bool valid = 1;
+  int64 expires_at = 2;  // unix timestamp
+  string session_cookie_name = 3;
+}
+
+message ConnectionStatusMap {
+  map<string, bool> platforms = 1;
+}

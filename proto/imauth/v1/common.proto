@@ -1,0 +1,32 @@
+syntax = "proto3";
+package imauth.v1;
+
+enum Platform {
+  PLATFORM_UNSPECIFIED = 0;
+  PLATFORM_INSTAGRAM = 1;
+  PLATFORM_THREADS = 2;
+}
+
+enum AuthStatus {
+  AUTH_STATUS_UNSPECIFIED = 0;
+  AUTH_STATUS_IDLE = 1;
+  AUTH_STATUS_LOADING = 2;
+  AUTH_STATUS_AUTHENTICATING = 3;
+  AUTH_STATUS_NEEDS_CREDS = 4;
+  AUTH_STATUS_NEEDS_2FA = 5;
+  AUTH_STATUS_NEEDS_CAPTCHA = 6;
+  AUTH_STATUS_CONNECTED = 7;
+  AUTH_STATUS_FAILED = 8;
+}
+
+message Cookie {
+  string name = 1;
+  string value = 2;
+  string domain = 3;
+  string path = 4;
+  int64 expires = 5;
+  bool http_only = 6;
+  bool secure = 7;
+}
+
+message Empty {}

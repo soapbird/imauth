@@ -1,0 +1,36 @@
+# Rust
+target/
+Cargo.lock
+*.rs.bk
+
+# Generated protobuf code
+crates/imauth-server/src/generated/imauth.v1.rs
+crates/imauth-cli/src/generated/imauth.v1.rs
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test/data
+.imauth/
+*.db
+*.db-journal
+
+# Python SDK
+sdk/python/__pycache__/
+sdk/python/*.egg-info/
+sdk/python/.pytest_cache/
+sdk/python/dist/
+sdk/python/build/
+
+# TypeScript SDK
+sdk/typescript/node_modules/
+sdk/typescript/dist/
+sdk/typescript/*.log
