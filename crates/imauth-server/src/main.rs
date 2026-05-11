@@ -9,7 +9,7 @@ use generated::v1::{
     auth_service_server::AuthServiceServer, credential_service_server::CredentialServiceServer,
     session_service_server::SessionServiceServer,
 };
-use imauth_core::ImauthCore;
+use imauth_core::AppContainer;
 use std::sync::Arc;
 use tonic::transport::Server;
 
@@ -28,14 +28,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cfg.server.grpc_addr = format!("0.0.0.0:{port}");
             cfg.nats.url = nats;
 
-            let core = Arc::new(ImauthCore::new(cfg.clone()).await?);
+            let container = Arc::new(AppContainer::from_config(cfg.clone()).await?);
 
             let addr = cfg.server.grpc_addr.parse()?;
             tracing::info!("Starting imauth gRPC server on {}", addr);
 
-            let auth_service = AuthGrpcService::new(core.clone());
-            let session_service = SessionGrpcService::new(core.clone());
-            let credential_service = CredentialGrpcService::new(core.clone());
+            let auth_service = AuthGrpcService::new(container.clone());
+            let session_service = SessionGrpcService::new(container.clone());
+            let credential_service = CredentialGrpcService::new(container.clone());
 
             Server::builder()
                 .add_service(AuthServiceServer::new(auth_service))

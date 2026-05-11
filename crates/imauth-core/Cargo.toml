@@ -20,6 +20,9 @@ thiserror = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
 rand = { workspace = true }
+async-trait = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
+mockall = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "test-util"] }

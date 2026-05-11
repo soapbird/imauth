@@ -20,23 +20,29 @@ pub enum ImauthError {
     #[error("Platform error: {0}")]
     Platform(String),
 
-    #[error("Session error: {0}")]
-    Session(String),
-
-    #[error("Credential error: {0}")]
-    Credential(String),
-
     #[error("Queue error: {0}")]
     Queue(String),
 
-    #[error("Validation error: {0}")]
-    Validation(String),
-
     #[error("Not found: {0}")]
     NotFound(String),
+}
 
-    #[error("Cancelled")]
-    Cancelled,
+impl From<sqlx::Error> for ImauthError {
+    fn from(e: sqlx::Error) -> Self {
+        ImauthError::Database(e.to_string())
+    }
+}
+
+impl From<aes_gcm::Error> for ImauthError {
+    fn from(e: aes_gcm::Error) -> Self {
+        ImauthError::Encryption(e.to_string())
+    }
+}
+
+impl From<base64::DecodeError> for ImauthError {
+    fn from(e: base64::DecodeError) -> Self {
+        ImauthError::Encryption(format!("Invalid base64: {e}"))
+    }
 }
 
 pub type Result<T> = std::result::Result<T, ImauthError>;
