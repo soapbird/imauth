@@ -10,7 +10,7 @@ service SessionService {
   // 쿠키 업데이트/추가
   rpc UpdateCookies(UpdateCookiesRequest) returns (CookieList);
 
-  // Netscape 포맷으로 쿠키 낳보기
+  // Netscape 포맷으로 쿠키 내보내기
   rpc ExportNetscape(ExportRequest) returns (NetscapeExport);
 
   // 세션 쿠키 유효성 검증
