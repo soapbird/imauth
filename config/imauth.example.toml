@@ -14,7 +14,7 @@ page_timeout_secs = 30
 data_dir = "~/.imauth/data"
 
 [security]
-encryption_key = ""  # 비어두면 자동 생성
+encryption_key = ""  # 비워두면 자동 생성
 
 [refresh]
 interval_secs = 3600
