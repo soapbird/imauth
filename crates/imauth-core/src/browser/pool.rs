@@ -35,6 +35,7 @@ impl BrowserPool {
             return Ok(BrowserHandle {
                 browser: Some(browser),
                 pool: self.browsers.clone(),
+                max_size: self.max_size,
                 _permit,
             });
         }
@@ -44,6 +45,7 @@ impl BrowserPool {
         Ok(BrowserHandle {
             browser: Some(browser),
             pool: self.browsers.clone(),
+            max_size: self.max_size,
             _permit,
         })
     }
@@ -52,6 +54,7 @@ impl BrowserPool {
 pub struct BrowserHandle {
     browser: Option<CdpBrowser>,
     pool: Arc<Mutex<Vec<CdpBrowser>>>,
+    max_size: usize,
     #[allow(dead_code)]
     _permit: tokio::sync::OwnedSemaphorePermit,
 }
@@ -66,9 +69,13 @@ impl Drop for BrowserHandle {
     fn drop(&mut self) {
         if let Some(browser) = self.browser.take() {
             let pool = self.pool.clone();
+            let max_size = self.max_size;
             tokio::spawn(async move {
                 let mut browsers = pool.lock().await;
-                browsers.push(browser);
+                if browsers.len() < max_size {
+                    browsers.push(browser);
+                }
+                // If pool is at capacity, browser is dropped/closed
             });
         }
     }

@@ -27,12 +27,13 @@ message LoginRequest {
 }
 
 message AuthEvent {
-  AuthStatus status = 1;
-  string message = 2;
-  bool requires_input = 3;
-  string input_type = 4;  // "2fa_code", "captcha", "creds"
-  repeated Cookie cookies = 5;
-  bytes screenshot = 6;   // base64 인코딩 스크린샷 (interactive 모드)
+  string session_id = 1;
+  AuthStatus status = 2;
+  string message = 3;
+  bool requires_input = 4;
+  string input_type = 5;  // "2fa_code", "captcha", "creds"
+  repeated Cookie cookies = 6;
+  bytes screenshot = 7;   // base64 인코딩 스크린샷 (interactive 모드)
 }
 
 message Submit2FARequest {

@@ -1,7 +1,6 @@
 pub mod cdp;
 pub mod pool;
 
-use cdp::CdpBrowser;
 use pool::{BrowserHandle, BrowserPool};
 
 pub struct BrowserManager {

@@ -1,11 +1,11 @@
-use crate::queue::types::{AuthJob, AuthJobResult, RefreshJob, ValidateJob};
+use crate::queue::types::{AuthJob, RefreshJob, ValidateJob};
 use crate::ImauthError;
 use async_nats::jetstream::stream::Config as StreamConfig;
 use async_nats::jetstream::Context;
 
 pub struct NatsQueue {
     js: Context,
-    stream_name: String,
+    _stream_name: String,
 }
 
 impl NatsQueue {
@@ -31,7 +31,7 @@ impl NatsQueue {
 
         Ok(Self {
             js,
-            stream_name: stream_name.to_string(),
+            _stream_name: stream_name.to_string(),
         })
     }
 

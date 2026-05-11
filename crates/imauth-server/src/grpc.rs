@@ -102,8 +102,11 @@ impl AuthService for AuthGrpcService {
                 }
             };
 
+            let session_id = session.id.clone();
+
             // Send initial event
             let event = AuthEvent {
+                session_id: session_id.clone(),
                 status: session_state_to_proto(&session.state) as i32,
                 message: session.message.clone().unwrap_or_default(),
                 requires_input: session.requires_input,
@@ -152,6 +155,7 @@ impl AuthService for AuthGrpcService {
             }
 
             let event = AuthEvent {
+                session_id: session.id.clone(),
                 status: session_state_to_proto(&session.state) as i32,
                 message: session.message.clone().unwrap_or_default(),
                 requires_input: session.requires_input,

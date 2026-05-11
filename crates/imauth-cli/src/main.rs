@@ -5,9 +5,8 @@ use generated::v1::{
     auth_service_client::AuthServiceClient,
     credential_service_client::CredentialServiceClient,
     session_service_client::SessionServiceClient,
-    AuthEvent, DeleteCredentialRequest, ExportRequest, GetCookiesRequest, GetCredentialRequest,
-    LoginRequest, Platform as ProtoPlatform, SaveCredentialRequest, StatusRequest,
-    Submit2FaRequest,
+    DeleteCredentialRequest, ExportRequest, GetCookiesRequest, GetCredentialRequest,
+    LoginRequest, SaveCredentialRequest, StatusRequest, Submit2FaRequest,
 };
 use tonic::transport::Channel;
 
@@ -124,9 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let mut client = AuthServiceClient::new(channel.clone());
                                 let resp = client
                                     .submit2_fa(tonic::Request::new(Submit2FaRequest {
-                                        session_id: event
-                                            .status
-                                            .to_string(),
+                                        session_id: event.session_id.clone(),
                                         code: code.clone(),
                                     }))
                                     .await?;

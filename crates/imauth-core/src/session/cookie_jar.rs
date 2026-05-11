@@ -1,4 +1,4 @@
-use super::state::{Cookie, Session, SessionState};
+use super::state::Cookie;
 use crate::ImauthError;
 use sqlx::SqlitePool;
 

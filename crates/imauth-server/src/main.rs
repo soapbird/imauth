@@ -27,12 +27,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 imauth_core::Config::load()?
             };
-            cfg.grpc_addr = format!("0.0.0.0:{port}");
-            cfg.nats_url = nats;
+            cfg.server.grpc_addr = format!("0.0.0.0:{port}");
+            cfg.nats.url = nats;
 
             let core = Arc::new(ImauthCore::new(cfg.clone()).await?);
 
-            let addr = cfg.grpc_addr.parse()?;
+            let addr = cfg.server.grpc_addr.parse()?;
             tracing::info!("Starting imauth gRPC server on {}", addr);
 
             let auth_service = AuthGrpcService::new(core.clone());

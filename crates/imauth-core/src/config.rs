@@ -1,12 +1,75 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ServerConfig {
+    #[serde(default = "default_grpc_addr")]
+    pub grpc_addr: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NatsConfig {
+    #[serde(default = "default_nats_url")]
+    pub url: String,
+    #[serde(default = "default_stream_name")]
+    pub stream_name: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BrowserConfig {
+    #[serde(default = "default_cdp_url")]
+    pub cdp_url: String,
+    #[serde(default = "default_max_pool_size")]
+    pub max_pool_size: usize,
+    #[serde(default = "default_page_timeout_secs")]
+    pub page_timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StorageConfig {
+    #[serde(default = "default_data_dir")]
+    pub data_dir: PathBuf,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SecurityConfig {
+    pub encryption_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RefreshConfig {
+    #[serde(default = "default_interval_secs")]
+    pub interval_secs: u64,
+    #[serde(default = "default_retry_max")]
+    pub retry_max: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Config {
+    #[serde(default)]
+    pub server: ServerConfig,
+    #[serde(default)]
+    pub nats: NatsConfig,
+    #[serde(default)]
+    pub browser: BrowserConfig,
+    #[serde(default)]
+    pub storage: StorageConfig,
+    #[serde(default)]
+    pub security: SecurityConfig,
+    #[serde(default)]
+    pub refresh: RefreshConfig,
+}
+
 fn default_grpc_addr() -> String {
     "0.0.0.0:50051".to_string()
 }
 
 fn default_nats_url() -> String {
     "nats://localhost:4222".to_string()
+}
+
+fn default_stream_name() -> String {
+    "imauth".to_string()
 }
 
 fn default_cdp_url() -> String {
@@ -36,39 +99,31 @@ fn default_retry_max() -> u32 {
     3
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Config {
-    #[serde(default = "default_grpc_addr")]
-    pub grpc_addr: String,
-    #[serde(default = "default_nats_url")]
-    pub nats_url: String,
-    #[serde(default = "default_cdp_url")]
-    pub cdp_url: String,
-    #[serde(default = "default_max_pool_size")]
-    pub max_pool_size: usize,
-    #[serde(default = "default_page_timeout_secs")]
-    pub page_timeout_secs: u64,
-    #[serde(default = "default_data_dir")]
-    pub data_dir: PathBuf,
-    pub encryption_key: Option<String>,
-    #[serde(default = "default_interval_secs")]
-    pub refresh_interval_secs: u64,
-    #[serde(default = "default_retry_max")]
-    pub refresh_retry_max: u32,
-}
-
 impl Default for Config {
     fn default() -> Self {
         Self {
-            grpc_addr: default_grpc_addr(),
-            nats_url: default_nats_url(),
-            cdp_url: default_cdp_url(),
-            max_pool_size: default_max_pool_size(),
-            page_timeout_secs: default_page_timeout_secs(),
-            data_dir: default_data_dir(),
-            encryption_key: None,
-            refresh_interval_secs: default_interval_secs(),
-            refresh_retry_max: default_retry_max(),
+            server: ServerConfig {
+                grpc_addr: default_grpc_addr(),
+            },
+            nats: NatsConfig {
+                url: default_nats_url(),
+                stream_name: default_stream_name(),
+            },
+            browser: BrowserConfig {
+                cdp_url: default_cdp_url(),
+                max_pool_size: default_max_pool_size(),
+                page_timeout_secs: default_page_timeout_secs(),
+            },
+            storage: StorageConfig {
+                data_dir: default_data_dir(),
+            },
+            security: SecurityConfig {
+                encryption_key: None,
+            },
+            refresh: RefreshConfig {
+                interval_secs: default_interval_secs(),
+                retry_max: default_retry_max(),
+            },
         }
     }
 }
@@ -85,19 +140,19 @@ impl Config {
 
         // Override with env vars
         if let Ok(addr) = std::env::var("IMAUTH_GRPC_ADDR") {
-            cfg.grpc_addr = addr;
+            cfg.server.grpc_addr = addr;
         }
         if let Ok(url) = std::env::var("IMAUTH_NATS_URL") {
-            cfg.nats_url = url;
+            cfg.nats.url = url;
         }
         if let Ok(url) = std::env::var("IMAUTH_CDP_URL") {
-            cfg.cdp_url = url;
+            cfg.browser.cdp_url = url;
         }
         if let Ok(key) = std::env::var("IMAUTH_ENCRYPTION_KEY") {
-            cfg.encryption_key = Some(key);
+            cfg.security.encryption_key = Some(key);
         }
         if let Ok(dir) = std::env::var("IMAUTH_DATA_DIR") {
-            cfg.data_dir = PathBuf::from(dir);
+            cfg.storage.data_dir = PathBuf::from(dir);
         }
 
         Ok(cfg)
@@ -109,12 +164,43 @@ impl Config {
         Self::from_file(&path)
     }
 
+    pub fn grpc_addr(&self) -> &str {
+        &self.server.grpc_addr
+    }
+
+    pub fn nats_url(&self) -> &str {
+        &self.nats.url
+    }
+
+    pub fn cdp_url(&self) -> &str {
+        &self.browser.cdp_url
+    }
+
+    pub fn max_pool_size(&self) -> usize {
+        self.browser.max_pool_size
+    }
+
+    pub fn page_timeout_secs(&self) -> u64 {
+        self.browser.page_timeout_secs
+    }
+
     pub fn db_path(&self) -> PathBuf {
-        self.data_dir.join("imauth.db")
+        self.storage.data_dir.join("imauth.db")
     }
 
     pub fn cookies_dir(&self) -> PathBuf {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-        home.join(".imauth").join("cookies")
+        self.storage.data_dir.join("cookies")
+    }
+
+    pub fn encryption_key(&self) -> Option<&str> {
+        self.security.encryption_key.as_deref()
+    }
+
+    pub fn refresh_interval_secs(&self) -> u64 {
+        self.refresh.interval_secs
+    }
+
+    pub fn refresh_retry_max(&self) -> u32 {
+        self.refresh.retry_max
     }
 }
