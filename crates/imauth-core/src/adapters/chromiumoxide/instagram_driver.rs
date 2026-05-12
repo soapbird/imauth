@@ -23,6 +23,17 @@ impl Default for InstagramPlatformDriver {
     }
 }
 
+fn normalize_instagram_2fa_code(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let digits: String = trimmed.chars().filter(|c| c.is_ascii_digit()).collect();
+
+    match digits.len() {
+        6 => digits,
+        len if len > 6 => digits[len - 6..].to_string(),
+        _ => trimmed.to_string(),
+    }
+}
+
 async fn snapshot(page: &dyn PageDriver, sink: &dyn SnapshotSink, session_id: &str, label: &str) {
     let html = page.content_html().await.unwrap_or_default();
     let png = page.screenshot().await.ok();
@@ -87,19 +98,20 @@ async fn apply_checkpoint(
     session: &mut Session,
     checkpoint: AuthCheckpoint,
     phase: Phase,
-) {
+) -> Vec<crate::domain::session::Cookie> {
     match checkpoint {
         AuthCheckpoint::Connected(cookies) => {
-            session.cookies = cookies;
             snapshot(page, sink, &session.id, "login_success").await;
             session.transition(
                 SessionState::Connected,
                 Some(phase.connected_message().to_string()),
             );
+            cookies
         }
         AuthCheckpoint::Needs2Fa => {
             snapshot(page, sink, &session.id, "2fa_required").await;
             session.transition(SessionState::Needs2Fa, Some("2FA required".to_string()));
+            vec![]
         }
         AuthCheckpoint::Captcha => {
             snapshot(page, sink, &session.id, "captcha_detected").await;
@@ -107,6 +119,7 @@ async fn apply_checkpoint(
                 SessionState::NeedsCaptcha,
                 Some(phase.captcha_message().to_string()),
             );
+            vec![]
         }
         AuthCheckpoint::Failed => {
             snapshot(page, sink, &session.id, "login_failed").await;
@@ -114,6 +127,7 @@ async fn apply_checkpoint(
                 SessionState::Failed,
                 Some(phase.failure_message().to_string()),
             );
+            vec![]
         }
         AuthCheckpoint::Pending => {
             snapshot(page, sink, &session.id, "login_failed").await;
@@ -121,6 +135,7 @@ async fn apply_checkpoint(
                 SessionState::Failed,
                 Some(phase.pending_message().to_string()),
             );
+            vec![]
         }
     }
 }
@@ -135,7 +150,7 @@ impl PlatformDriver for InstagramPlatformDriver {
         password: &'a str,
         session: &'a mut Session,
         sink: &'a dyn SnapshotSink,
-    ) -> Result<()> {
+    ) -> Result<Vec<crate::domain::session::Cookie>> {
         session.transition(
             SessionState::Loading,
             Some(format!("Opening {} login page...", platform.as_str())),
@@ -150,8 +165,8 @@ impl PlatformDriver for InstagramPlatformDriver {
         snapshot(page, sink, &session.id, "loading_page").await;
 
         if let Some(checkpoint) = initial_checkpoint {
-            apply_checkpoint(page, sink, session, checkpoint, Phase::Initial).await;
-            return Ok(());
+            let cookies = apply_checkpoint(page, sink, session, checkpoint, Phase::Initial).await;
+            return Ok(cookies);
         }
 
         session.transition(
@@ -180,9 +195,9 @@ impl PlatformDriver for InstagramPlatformDriver {
 
         snapshot(page, sink, &session.id, "after_submit").await;
 
-        apply_checkpoint(page, sink, session, checkpoint, Phase::PostLogin).await;
+        let cookies = apply_checkpoint(page, sink, session, checkpoint, Phase::PostLogin).await;
 
-        Ok(())
+        Ok(cookies)
     }
 
     async fn submit_2fa<'a>(
@@ -192,16 +207,17 @@ impl PlatformDriver for InstagramPlatformDriver {
         code: &'a str,
         session: &'a mut Session,
         sink: &'a dyn SnapshotSink,
-    ) -> Result<()> {
+    ) -> Result<Vec<crate::domain::session::Cookie>> {
         session.transition(
             SessionState::Authenticating,
             Some("Submitting 2FA code...".to_string()),
         );
 
         let mut input_selector: Option<&'static str> = None;
+        let code = normalize_instagram_2fa_code(code);
         for selector in INSTAGRAM_SELECTORS.twofa_input.iter().copied() {
             if page.find_element(selector).await? {
-                page.fill_input(selector, code).await?;
+                page.fill_input(selector, &code).await?;
                 input_selector = Some(selector);
                 break;
             }
@@ -244,8 +260,28 @@ impl PlatformDriver for InstagramPlatformDriver {
 
         snapshot(page, sink, &session.id, "2fa_after_submit").await;
 
-        apply_checkpoint(page, sink, session, checkpoint, Phase::Post2Fa).await;
+        let cookies = apply_checkpoint(page, sink, session, checkpoint, Phase::Post2Fa).await;
 
-        Ok(())
+        Ok(cookies)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_instagram_2fa_code;
+
+    #[test]
+    fn normalize_instagram_2fa_code_preserves_leading_zeroes() {
+        assert_eq!(normalize_instagram_2fa_code("007594"), "007594");
+    }
+
+    #[test]
+    fn normalize_instagram_2fa_code_drops_terminal_echo_prefix() {
+        assert_eq!(normalize_instagram_2fa_code("746736362"), "736362");
+    }
+
+    #[test]
+    fn normalize_instagram_2fa_code_strips_digit_separators() {
+        assert_eq!(normalize_instagram_2fa_code("736 362"), "736362");
     }
 }

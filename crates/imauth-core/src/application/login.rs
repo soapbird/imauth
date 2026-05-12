@@ -1,22 +1,23 @@
-use crate::domain::session::{Session, SessionState};
+use crate::domain::session::{Cookie, Session, SessionState};
 use crate::domain::Platform;
 use crate::ports::browser::{BrowserSessionFactory, PlatformDriver};
 use crate::ports::repository::{CookieRepository, SessionRepository};
 use crate::ports::snapshot::SnapshotSink;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]
 pub enum LoginEvent {
     Started(Session),
-    Final(Session),
+    Final(Session, Vec<Cookie>),
 }
 
 pub struct LoginUseCase {
     sessions: Arc<dyn SessionRepository>,
     cookies: Arc<dyn CookieRepository>,
     browser: Arc<dyn BrowserSessionFactory>,
-    driver: Arc<dyn PlatformDriver>,
+    drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
     snapshot: Arc<dyn SnapshotSink>,
 }
 
@@ -25,14 +26,14 @@ impl LoginUseCase {
         sessions: Arc<dyn SessionRepository>,
         cookies: Arc<dyn CookieRepository>,
         browser: Arc<dyn BrowserSessionFactory>,
-        driver: Arc<dyn PlatformDriver>,
+        drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
         snapshot: Arc<dyn SnapshotSink>,
     ) -> Self {
         Self {
             sessions,
             cookies,
             browser,
-            driver,
+            drivers,
             snapshot,
         }
     }
@@ -62,7 +63,7 @@ impl LoginUseCase {
             Err(e) => {
                 session.transition(SessionState::Failed, Some(format!("Browser error: {e}")));
                 let _ = self.sessions.update(&session).await;
-                let _ = tx.send(LoginEvent::Final(session)).await;
+                let _ = tx.send(LoginEvent::Final(session, vec![])).await;
                 return;
             }
         };
@@ -75,13 +76,25 @@ impl LoginUseCase {
                     Some(format!("Failed to open page: {e}")),
                 );
                 let _ = self.sessions.update(&session).await;
-                let _ = tx.send(LoginEvent::Final(session)).await;
+                let _ = tx.send(LoginEvent::Final(session, vec![])).await;
                 return;
             }
         };
 
-        if let Err(e) = self
-            .driver
+        let driver = match self.drivers.get(&platform) {
+            Some(d) => d,
+            None => {
+                session.transition(
+                    SessionState::Failed,
+                    Some(format!("No driver for platform {}", platform.as_str())),
+                );
+                let _ = self.sessions.update(&session).await;
+                let _ = tx.send(LoginEvent::Final(session, vec![])).await;
+                return;
+            }
+        };
+
+        let cookies = match driver
             .login(
                 &*page,
                 platform,
@@ -92,18 +105,22 @@ impl LoginUseCase {
             )
             .await
         {
-            session.transition(SessionState::Failed, Some(e.to_string()));
-        }
+            Ok(cookies) => cookies,
+            Err(e) => {
+                session.transition(SessionState::Failed, Some(e.to_string()));
+                Vec::new()
+            }
+        };
 
         let _ = self.sessions.update(&session).await;
 
         if session.state == SessionState::Connected {
-            if let Err(e) = self.cookies.save(&session.platform, &session.cookies).await {
+            if let Err(e) = self.cookies.save(&session.platform, &cookies).await {
                 tracing::warn!("Failed to persist cookies after login: {e}");
             }
         }
 
-        let _ = tx.send(LoginEvent::Final(session)).await;
+        let _ = tx.send(LoginEvent::Final(session, cookies)).await;
     }
 }
 
@@ -131,8 +148,9 @@ mod tests {
             _password: &'a str,
             session: &'a mut Session,
             _snapshot: &'a dyn SnapshotSink,
-        ) -> AppResult<()> {
-            session.cookies = vec![Cookie {
+        ) -> AppResult<Vec<Cookie>> {
+            session.transition(SessionState::Connected, Some("ok".into()));
+            Ok(vec![Cookie {
                 name: "sessionid".into(),
                 value: "abc".into(),
                 domain: ".instagram.com".into(),
@@ -140,9 +158,7 @@ mod tests {
                 expires: None,
                 http_only: true,
                 secure: true,
-            }];
-            session.transition(SessionState::Connected, Some("ok".into()));
-            Ok(())
+            }])
         }
         async fn submit_2fa<'a>(
             &'a self,
@@ -151,8 +167,8 @@ mod tests {
             _code: &'a str,
             _session: &'a mut Session,
             _snapshot: &'a dyn SnapshotSink,
-        ) -> AppResult<()> {
-            Ok(())
+        ) -> AppResult<Vec<Cookie>> {
+            Ok(vec![])
         }
     }
 
@@ -168,9 +184,9 @@ mod tests {
             _password: &'a str,
             session: &'a mut Session,
             _snapshot: &'a dyn SnapshotSink,
-        ) -> AppResult<()> {
+        ) -> AppResult<Vec<Cookie>> {
             session.transition(SessionState::Failed, Some("bad creds".into()));
-            Ok(())
+            Ok(vec![])
         }
         async fn submit_2fa<'a>(
             &'a self,
@@ -179,8 +195,8 @@ mod tests {
             _code: &'a str,
             _session: &'a mut Session,
             _snapshot: &'a dyn SnapshotSink,
-        ) -> AppResult<()> {
-            Ok(())
+        ) -> AppResult<Vec<Cookie>> {
+            Ok(vec![])
         }
     }
 
@@ -188,14 +204,14 @@ mod tests {
         sessions: MockSessionRepository,
         cookies: MockCookieRepository,
         browser: MockBrowserSessionFactory,
-        driver: Arc<dyn PlatformDriver>,
+        drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
         snapshot: MockSnapshotSink,
     ) -> LoginUseCase {
         LoginUseCase::new(
             Arc::new(sessions),
             Arc::new(cookies),
             Arc::new(browser),
-            driver,
+            drivers,
             Arc::new(snapshot),
         )
     }
@@ -228,11 +244,13 @@ mod tests {
 
         let snapshot = MockSnapshotSink::new();
 
+        let mut drivers = HashMap::new();
+        drivers.insert(Platform::Instagram, Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>);
         let uc = build_login_use_case(
             sessions,
             cookies,
             happy_browser(),
-            Arc::new(ConnectingDriver),
+            drivers,
             snapshot,
         );
 
@@ -244,9 +262,9 @@ mod tests {
         let final_evt = rx.recv().await.expect("final event");
         assert!(matches!(started, LoginEvent::Started(_)));
         match final_evt {
-            LoginEvent::Final(s) => {
+            LoginEvent::Final(s, cookies) => {
                 assert_eq!(s.state, SessionState::Connected);
-                assert_eq!(s.cookies.len(), 1);
+                assert_eq!(cookies.len(), 1);
             }
             _ => panic!("expected Final"),
         }
@@ -264,11 +282,13 @@ mod tests {
 
         let snapshot = MockSnapshotSink::new();
 
+        let mut drivers = HashMap::new();
+        drivers.insert(Platform::Instagram, Arc::new(FailingDriver) as Arc<dyn PlatformDriver>);
         let uc = build_login_use_case(
             sessions,
             cookies,
             happy_browser(),
-            Arc::new(FailingDriver),
+            drivers,
             snapshot,
         );
 
@@ -278,7 +298,10 @@ mod tests {
         let _ = rx.recv().await;
         let final_evt = rx.recv().await.unwrap();
         match final_evt {
-            LoginEvent::Final(s) => assert_eq!(s.state, SessionState::Failed),
+            LoginEvent::Final(s, cookies) => {
+                assert_eq!(s.state, SessionState::Failed);
+                assert!(cookies.is_empty());
+            }
             _ => panic!("expected Final"),
         }
     }
@@ -299,11 +322,13 @@ mod tests {
 
         let snapshot = MockSnapshotSink::new();
 
+        let mut drivers = HashMap::new();
+        drivers.insert(Platform::Instagram, Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>);
         let uc = build_login_use_case(
             sessions,
             cookies,
             browser,
-            Arc::new(ConnectingDriver), // never called
+            drivers,
             snapshot,
         );
 
@@ -313,9 +338,10 @@ mod tests {
         let _ = rx.recv().await;
         let final_evt = rx.recv().await.unwrap();
         match final_evt {
-            LoginEvent::Final(s) => {
+            LoginEvent::Final(s, cookies) => {
                 assert_eq!(s.state, SessionState::Failed);
                 assert!(s.message.unwrap_or_default().contains("Browser error"));
+                assert!(cookies.is_empty());
             }
             _ => panic!("expected Final"),
         }

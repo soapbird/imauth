@@ -18,8 +18,5 @@ pub enum Commands {
         /// gRPC port
         #[arg(short, long, default_value = "50051")]
         port: u16,
-        /// NATS URL
-        #[arg(long, default_value = "nats://localhost:4222")]
-        nats: String,
     },
 }

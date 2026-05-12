@@ -1,7 +1,7 @@
 // tonic::Status is intentionally large; this is a known clippy lint we accept.
 #![allow(clippy::result_large_err)]
 
-use crate::generated::v1::{
+use imauth_proto::generated::v1::{
     auth_service_server::AuthService, credential_service_server::CredentialService,
     session_service_server::SessionService, AuthEvent, AuthResponse, AuthStatus as ProtoAuthStatus,
     AuthStatusResponse, CancelRequest, ConnectionStatusMap, Cookie as ProtoCookie, CookieList,
@@ -22,6 +22,15 @@ use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status};
 
 // ---- proto ↔ domain converters (server-crate concerns) ------------------------
+
+fn map_auth_err(err: imauth_core::ImauthError) -> tonic::Status {
+    use imauth_core::ImauthError;
+    match err {
+        ImauthError::NotFound(m) => tonic::Status::not_found(m),
+        ImauthError::Platform(m) => tonic::Status::invalid_argument(m),
+        other => tonic::Status::internal(other.to_string()),
+    }
+}
 
 fn platform_from_proto(p: i32) -> Option<Platform> {
     match p {
@@ -75,7 +84,7 @@ fn auth_event_from(session: &Session) -> AuthEvent {
         message: session.message.clone().unwrap_or_default(),
         requires_input: session.requires_input,
         input_type: session.input_type.clone().unwrap_or_default(),
-        cookies: session.cookies.iter().map(cookie_to_proto).collect(),
+        cookies: vec![],
         screenshot: vec![],
     }
 }
@@ -115,10 +124,13 @@ impl AuthService for AuthGrpcService {
         });
 
         let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|event| {
-            let session = match event {
-                LoginEvent::Started(s) | LoginEvent::Final(s) => s,
+            let (session, cookies) = match event {
+                LoginEvent::Started(s) => (s, vec![]),
+                LoginEvent::Final(s, c) => (s, c),
             };
-            Ok::<AuthEvent, Status>(auth_event_from(&session))
+            let mut evt = auth_event_from(&session);
+            evt.cookies = cookies.iter().map(cookie_to_proto).collect();
+            Ok::<AuthEvent, Status>(evt)
         });
 
         Ok(Response::new(Box::pin(stream) as Self::LoginStream))
@@ -129,21 +141,18 @@ impl AuthService for AuthGrpcService {
         request: Request<Submit2FaRequest>,
     ) -> Result<Response<AuthResponse>, Status> {
         let req = request.into_inner();
-        let session = self
+        let (session, cookies) = self
             .container
             .submit_2fa
             .execute(&req.session_id, &req.code)
             .await
-            .map_err(|e| match e {
-                imauth_core::ImauthError::NotFound(m) => Status::not_found(m),
-                other => Status::internal(other.to_string()),
-            })?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(AuthResponse {
             success: session.state == SessionState::Connected,
             session_id: session.id,
             message: session.message.clone().unwrap_or_default(),
-            cookies: session.cookies.iter().map(cookie_to_proto).collect(),
+            cookies: cookies.iter().map(cookie_to_proto).collect(),
         }))
     }
 
@@ -169,10 +178,7 @@ impl AuthService for AuthGrpcService {
             .get_status
             .execute(&req.session_id)
             .await
-            .map_err(|e| match e {
-                imauth_core::ImauthError::NotFound(m) => Status::not_found(m),
-                other => Status::internal(other.to_string()),
-            })?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(AuthStatusResponse {
             session_id: session.id,
@@ -192,7 +198,7 @@ impl AuthService for AuthGrpcService {
             .cancel_session
             .execute(&req.session_id)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(AuthResponse {
             success: true,
@@ -235,7 +241,7 @@ impl SessionService for SessionGrpcService {
             .get_cookies
             .execute(platform, domains)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(CookieList {
             cookies: cookies.iter().map(cookie_to_proto).collect(),
@@ -255,7 +261,7 @@ impl SessionService for SessionGrpcService {
             .update_cookies
             .execute(platform, cookies)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(CookieList {
             cookies: req.cookies,
@@ -275,7 +281,7 @@ impl SessionService for SessionGrpcService {
             .export_netscape
             .execute(platform)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(NetscapeExport { content }))
     }
@@ -293,7 +299,7 @@ impl SessionService for SessionGrpcService {
             .validate_session
             .execute(platform)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(ValidationResult {
             valid: outcome.valid,
@@ -311,7 +317,7 @@ impl SessionService for SessionGrpcService {
             .get_connection_status
             .execute()
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(ConnectionStatusMap { platforms }))
     }
@@ -349,7 +355,7 @@ impl CredentialService for CredentialGrpcService {
             .save_credential
             .execute(platform, &req.username, &req.password, twofa)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(CredentialResponse {
             success: true,
@@ -371,7 +377,7 @@ impl CredentialService for CredentialGrpcService {
             .get_credential
             .execute(platform)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         match cred {
             Some(c) => Ok(Response::new(CredentialInfo {
@@ -396,7 +402,7 @@ impl CredentialService for CredentialGrpcService {
             .delete_credential
             .execute(platform)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(CredentialResponse {
             success: true,

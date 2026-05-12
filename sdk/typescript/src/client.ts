@@ -18,6 +18,7 @@ const packageDefinition = protoLoader.loadSync(
     enums: String,
     defaults: true,
     oneofs: true,
+    includeDirs: [PROTO_ROOT],
   }
 );
 

@@ -8,14 +8,6 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct NatsConfig {
-    #[serde(default = "default_nats_url")]
-    pub url: String,
-    #[serde(default = "default_stream_name")]
-    pub stream_name: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BrowserConfig {
     #[serde(default = "default_cdp_url")]
     pub cdp_url: String,
@@ -49,8 +41,6 @@ pub struct Config {
     #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
-    pub nats: NatsConfig,
-    #[serde(default)]
     pub browser: BrowserConfig,
     #[serde(default)]
     pub storage: StorageConfig,
@@ -62,14 +52,6 @@ pub struct Config {
 
 fn default_grpc_addr() -> String {
     "0.0.0.0:50051".to_string()
-}
-
-fn default_nats_url() -> String {
-    "nats://localhost:4222".to_string()
-}
-
-fn default_stream_name() -> String {
-    "imauth".to_string()
 }
 
 fn default_cdp_url() -> String {
@@ -116,10 +98,6 @@ impl Default for Config {
             server: ServerConfig {
                 grpc_addr: default_grpc_addr(),
             },
-            nats: NatsConfig {
-                url: default_nats_url(),
-                stream_name: default_stream_name(),
-            },
             browser: BrowserConfig {
                 cdp_url: default_cdp_url(),
                 max_pool_size: default_max_pool_size(),
@@ -158,9 +136,6 @@ impl Config {
     fn apply_env_overrides(&mut self) {
         if let Ok(addr) = std::env::var("IMAUTH_GRPC_ADDR") {
             self.server.grpc_addr = addr;
-        }
-        if let Ok(url) = std::env::var("IMAUTH_NATS_URL") {
-            self.nats.url = url;
         }
         if let Ok(url) = std::env::var("IMAUTH_CDP_URL") {
             self.browser.cdp_url = url;
@@ -220,10 +195,6 @@ impl Config {
 
     pub fn grpc_addr(&self) -> &str {
         &self.server.grpc_addr
-    }
-
-    pub fn nats_url(&self) -> &str {
-        &self.nats.url
     }
 
     pub fn cdp_url(&self) -> &str {

@@ -1,11 +1,9 @@
-mod cli;
-mod generated;
-mod grpc;
 
-use crate::cli::{Cli, Commands};
-use crate::grpc::{AuthGrpcService, CredentialGrpcService, SessionGrpcService};
+
+use imauth_server::cli::{Cli, Commands};
+use imauth_server::grpc::{AuthGrpcService, CredentialGrpcService, SessionGrpcService};
 use clap::Parser;
-use generated::v1::{
+use imauth_proto::generated::v1::{
     auth_service_server::AuthServiceServer, credential_service_server::CredentialServiceServer,
     session_service_server::SessionServiceServer,
 };
@@ -19,14 +17,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Serve { config, port, nats } => {
+        Commands::Serve { config, port } => {
             let mut cfg = if let Some(path) = config {
                 imauth_core::Config::from_file(&path)?
             } else {
                 imauth_core::Config::load()?
             };
             cfg.server.grpc_addr = format!("0.0.0.0:{port}");
-            cfg.nats.url = nats;
 
             let container = Arc::new(AppContainer::from_config(cfg.clone()).await?);
 

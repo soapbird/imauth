@@ -2,6 +2,5 @@
 
 pub mod browser;
 pub mod encryption;
-pub mod queue;
 pub mod repository;
 pub mod snapshot;

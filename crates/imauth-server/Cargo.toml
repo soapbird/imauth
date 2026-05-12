@@ -9,16 +9,14 @@ path = "src/main.rs"
 
 [dependencies]
 imauth-core = { path = "../imauth-core" }
+imauth-proto = { path = "../imauth-proto" }
 tokio = { workspace = true }
 tonic = { workspace = true }
-prost = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 futures = { workspace = true }
 chrono = { workspace = true }
+async-trait = { workspace = true }
 tokio-stream = "0.1"
-
-[build-dependencies]
-tonic-build = { workspace = true }

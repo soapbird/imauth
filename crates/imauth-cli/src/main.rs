@@ -1,7 +1,7 @@
-mod generated;
+
 
 use clap::{Parser, Subcommand};
-use generated::v1::{
+use imauth_proto::generated::v1::{
     auth_service_client::AuthServiceClient, credential_service_client::CredentialServiceClient,
     session_service_client::SessionServiceClient, AuthStatus, DeleteCredentialRequest,
     ExportRequest, GetCookiesRequest, GetCredentialRequest, LoginRequest, SaveCredentialRequest,
@@ -102,7 +102,18 @@ fn read_2fa_code() -> io::Result<String> {
 
     let mut code = String::new();
     io::stdin().read_line(&mut code)?;
-    Ok(code.trim().to_string())
+    Ok(normalize_2fa_code(&code))
+}
+
+fn normalize_2fa_code(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let digits: String = trimmed.chars().filter(|c| c.is_ascii_digit()).collect();
+
+    match digits.len() {
+        6 => digits,
+        len if len > 6 => digits[len - 6..].to_string(),
+        _ => trimmed.to_string(),
+    }
 }
 
 #[tokio::main]
@@ -137,7 +148,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     match event.input_type.as_str() {
                         "2fa_code" => {
                             let code = match &twofa {
-                                Some(Some(code)) if !code.is_empty() => Some(code.clone()),
+                                Some(Some(code)) if !code.is_empty() => {
+                                    Some(normalize_2fa_code(code))
+                                }
                                 Some(_) => Some(read_2fa_code()?),
                                 None => None,
                             };
@@ -182,10 +195,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         break;
                     }
                     _ => {}
-                }
-            }
         }
-
+    }
         Commands::Status { session_id } => {
             let mut client = AuthServiceClient::new(channel);
             let resp = client
@@ -265,4 +276,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_2fa_code;
+
+    #[test]
+    fn normalize_2fa_code_keeps_six_digits_including_leading_zero() {
+        assert_eq!(normalize_2fa_code(" 007594\n"), "007594");
+    }
+
+    #[test]
+    fn normalize_2fa_code_uses_last_six_digits_when_terminal_input_was_prefixed() {
+        assert_eq!(normalize_2fa_code("746736362"), "736362");
+    }
+
+    #[test]
+    fn normalize_2fa_code_strips_separators() {
+        assert_eq!(normalize_2fa_code("123 456"), "123456");
+    }
 }

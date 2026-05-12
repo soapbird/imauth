@@ -51,7 +51,7 @@ pub trait PlatformDriver: Send + Sync {
         password: &'a str,
         session: &'a mut Session,
         snapshot: &'a dyn SnapshotSink,
-    ) -> Result<()>;
+    ) -> Result<Vec<Cookie>>;
 
     async fn submit_2fa<'a>(
         &'a self,
@@ -60,5 +60,5 @@ pub trait PlatformDriver: Send + Sync {
         code: &'a str,
         session: &'a mut Session,
         snapshot: &'a dyn SnapshotSink,
-    ) -> Result<()>;
+    ) -> Result<Vec<Cookie>>;
 }

@@ -1,17 +1,18 @@
 use crate::Result;
-use crate::domain::session::{Session, SessionState};
+use crate::domain::session::{Cookie, Session, SessionState};
 use crate::domain::Platform;
 use crate::ports::browser::{BrowserSessionFactory, PlatformDriver};
 use crate::ports::repository::{CookieRepository, SessionRepository};
 use crate::ports::snapshot::SnapshotSink;
 use crate::ImauthError;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 pub struct Submit2FaUseCase {
     sessions: Arc<dyn SessionRepository>,
     cookies: Arc<dyn CookieRepository>,
     browser: Arc<dyn BrowserSessionFactory>,
-    driver: Arc<dyn PlatformDriver>,
+    drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
     snapshot: Arc<dyn SnapshotSink>,
 }
 
@@ -20,19 +21,19 @@ impl Submit2FaUseCase {
         sessions: Arc<dyn SessionRepository>,
         cookies: Arc<dyn CookieRepository>,
         browser: Arc<dyn BrowserSessionFactory>,
-        driver: Arc<dyn PlatformDriver>,
+        drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
         snapshot: Arc<dyn SnapshotSink>,
     ) -> Self {
         Self {
             sessions,
             cookies,
             browser,
-            driver,
+            drivers,
             snapshot,
         }
     }
 
-    pub async fn execute(&self, session_id: &str, code: &str) -> Result<Session> {
+    pub async fn execute(&self, session_id: &str, code: &str) -> Result<(Session, Vec<Cookie>)> {
         let mut session = self
             .sessions
             .get(session_id)
@@ -43,13 +44,17 @@ impl Submit2FaUseCase {
             ImauthError::Platform(format!("Unknown platform {}", session.platform))
         })?;
 
+        let driver = self.drivers.get(&platform).ok_or_else(|| {
+            ImauthError::Platform(format!("No driver for platform {}", platform.as_str()))
+        })?;
+
         let browser_session = self.browser.acquire().await?;
         let pages = browser_session.existing_pages().await?;
         let page = pages.into_iter().next().ok_or_else(|| {
             ImauthError::Browser("No browser page found — the 2FA page may have been closed".into())
         })?;
 
-        self.driver
+        let cookies = driver
             .submit_2fa(&*page, platform, code, &mut session, &*self.snapshot)
             .await?;
 
@@ -57,11 +62,11 @@ impl Submit2FaUseCase {
 
         if session.state == SessionState::Connected {
             self.cookies
-                .save(&session.platform, &session.cookies)
+                .save(&session.platform, &cookies)
                 .await?;
         }
 
-        Ok(session)
+        Ok((session, cookies))
     }
 }
 
@@ -88,8 +93,8 @@ mod tests {
             _: &'a str,
             _: &'a mut Session,
             _: &'a dyn SnapshotSink,
-        ) -> AppResult<()> {
-            Ok(())
+        ) -> AppResult<Vec<Cookie>> {
+            Ok(vec![])
         }
         async fn submit_2fa<'a>(
             &'a self,
@@ -98,8 +103,9 @@ mod tests {
             _: &'a str,
             session: &'a mut Session,
             _: &'a dyn SnapshotSink,
-        ) -> AppResult<()> {
-            session.cookies = vec![Cookie {
+        ) -> AppResult<Vec<Cookie>> {
+            session.transition(SessionState::Connected, Some("ok".into()));
+            Ok(vec![Cookie {
                 name: "sessionid".into(),
                 value: "v".into(),
                 domain: ".instagram.com".into(),
@@ -107,9 +113,7 @@ mod tests {
                 expires: None,
                 http_only: true,
                 secure: true,
-            }];
-            session.transition(SessionState::Connected, Some("ok".into()));
-            Ok(())
+            }])
         }
     }
 
@@ -124,8 +128,8 @@ mod tests {
             _: &'a str,
             _: &'a mut Session,
             _: &'a dyn SnapshotSink,
-        ) -> AppResult<()> {
-            Ok(())
+        ) -> AppResult<Vec<Cookie>> {
+            Ok(vec![])
         }
         async fn submit_2fa<'a>(
             &'a self,
@@ -134,9 +138,9 @@ mod tests {
             _: &'a str,
             session: &'a mut Session,
             _: &'a dyn SnapshotSink,
-        ) -> AppResult<()> {
+        ) -> AppResult<Vec<Cookie>> {
             session.transition(SessionState::Failed, Some("bad code".into()));
-            Ok(())
+            Ok(vec![])
         }
     }
 
@@ -144,14 +148,14 @@ mod tests {
         sessions: MockSessionRepository,
         cookies: MockCookieRepository,
         browser: MockBrowserSessionFactory,
-        driver: Arc<dyn PlatformDriver>,
+        drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
         snapshot: MockSnapshotSink,
     ) -> Submit2FaUseCase {
         Submit2FaUseCase::new(
             Arc::new(sessions),
             Arc::new(cookies),
             Arc::new(browser),
-            driver,
+            drivers,
             Arc::new(snapshot),
         )
     }
@@ -179,11 +183,13 @@ mod tests {
         let browser = MockBrowserSessionFactory::new();
         let snapshot = MockSnapshotSink::new();
 
+        let mut drivers = HashMap::new();
+        drivers.insert(Platform::Instagram, Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>);
         let uc = build_uc(
             sessions,
             cookies,
             browser,
-            Arc::new(ConnectingDriver),
+            drivers,
             snapshot,
         );
         let err = uc.execute("missing", "123456").await.unwrap_err();
@@ -208,15 +214,18 @@ mod tests {
             .returning(|_, _| Ok(()));
 
         let snapshot = MockSnapshotSink::new();
+        let mut drivers = HashMap::new();
+        drivers.insert(Platform::Instagram, Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>);
         let uc = build_uc(
             sessions,
             cookies,
             happy_browser(),
-            Arc::new(ConnectingDriver),
+            drivers,
             snapshot,
         );
-        let out = uc.execute("s1", "654321").await.unwrap();
+        let (out, cookies) = uc.execute("s1", "654321").await.unwrap();
         assert_eq!(out.state, SessionState::Connected);
+        assert_eq!(cookies.len(), 1);
     }
 
     #[tokio::test]
@@ -233,14 +242,17 @@ mod tests {
         cookies.expect_save().times(0);
 
         let snapshot = MockSnapshotSink::new();
+        let mut drivers = HashMap::new();
+        drivers.insert(Platform::Instagram, Arc::new(FailingDriver) as Arc<dyn PlatformDriver>);
         let uc = build_uc(
             sessions,
             cookies,
             happy_browser(),
-            Arc::new(FailingDriver),
+            drivers,
             snapshot,
         );
-        let out = uc.execute("s1", "000000").await.unwrap();
+        let (out, cookies) = uc.execute("s1", "000000").await.unwrap();
         assert_eq!(out.state, SessionState::Failed);
+        assert!(cookies.is_empty());
     }
 }

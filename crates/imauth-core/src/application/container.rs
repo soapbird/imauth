@@ -1,8 +1,7 @@
 use crate::adapters::aes_gcm::AesGcmEncryptionService;
 use crate::adapters::chromiumoxide::{ChromiumOxideBrowserFactory, InstagramPlatformDriver};
 use crate::adapters::fs::FsSnapshotSink;
-use crate::adapters::inmem::InMemorySessionRepository;
-use crate::adapters::sqlite::{self, SqliteCookieRepository, SqliteCredentialRepository};
+use crate::adapters::sqlite::{self, SqliteCookieRepository, SqliteCredentialRepository, SqliteSessionRepository};
 use crate::application::cookies::{
     ExportNetscapeUseCase, GetConnectionStatusUseCase, GetCookiesUseCase, UpdateCookiesUseCase,
     ValidateSessionUseCase,
@@ -15,10 +14,12 @@ use crate::application::login::LoginUseCase;
 use crate::application::status::{CancelSessionUseCase, GetStatusUseCase};
 use crate::application::submit_2fa::Submit2FaUseCase;
 use crate::config::Config;
+use crate::domain::Platform;
 use crate::ports::browser::{BrowserSessionFactory, PlatformDriver};
 use crate::ports::encryption::EncryptionService;
 use crate::ports::repository::{CookieRepository, CredentialRepository, SessionRepository};
 use crate::ports::snapshot::SnapshotSink;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Composition root. Wires concrete adapters into use cases. `imauth-server` and
@@ -48,7 +49,7 @@ impl AppContainer {
         let encryption: Arc<dyn EncryptionService> =
             Arc::new(AesGcmEncryptionService::from_config(&config)?);
 
-        let sessions: Arc<dyn SessionRepository> = Arc::new(InMemorySessionRepository::new());
+        let sessions: Arc<dyn SessionRepository> = Arc::new(SqliteSessionRepository::new(pool.clone()));
         let cookies: Arc<dyn CookieRepository> =
             Arc::new(SqliteCookieRepository::new(pool.clone()));
         let credentials: Arc<dyn CredentialRepository> = Arc::new(SqliteCredentialRepository::new(
@@ -60,7 +61,11 @@ impl AppContainer {
             config.cdp_url().to_string(),
             config.max_pool_size(),
         ));
-        let driver: Arc<dyn PlatformDriver> = Arc::new(InstagramPlatformDriver::new());
+
+        let mut drivers: HashMap<Platform, Arc<dyn PlatformDriver>> = HashMap::new();
+        let instagram_driver = Arc::new(InstagramPlatformDriver::new());
+        drivers.insert(Platform::Instagram, instagram_driver.clone());
+        drivers.insert(Platform::Threads, instagram_driver);
 
         let snapshot: Arc<dyn SnapshotSink> = Arc::new(FsSnapshotSink::new(config.snapshot_dir()));
 
@@ -68,14 +73,14 @@ impl AppContainer {
             sessions.clone(),
             cookies.clone(),
             browser.clone(),
-            driver.clone(),
+            drivers.clone(),
             snapshot.clone(),
         ));
         let submit_2fa = Arc::new(Submit2FaUseCase::new(
             sessions.clone(),
             cookies.clone(),
             browser.clone(),
-            driver.clone(),
+            drivers.clone(),
             snapshot.clone(),
         ));
         let get_cookies = Arc::new(GetCookiesUseCase::new(cookies.clone()));
