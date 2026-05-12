@@ -1,13 +1,11 @@
-
-
-use imauth_server::cli::{Cli, Commands};
-use imauth_server::grpc::{AuthGrpcService, CredentialGrpcService, SessionGrpcService};
 use clap::Parser;
+use imauth_core::AppContainer;
 use imauth_proto::generated::v1::{
     auth_service_server::AuthServiceServer, credential_service_server::CredentialServiceServer,
     session_service_server::SessionServiceServer,
 };
-use imauth_core::AppContainer;
+use imauth_server::cli::{Cli, Commands};
+use imauth_server::grpc::{AuthGrpcService, CredentialGrpcService, SessionGrpcService};
 use std::sync::Arc;
 use tonic::transport::Server;
 

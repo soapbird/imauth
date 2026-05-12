@@ -12,6 +12,83 @@ impl FsSnapshotSink {
     }
 }
 
+fn redact_html_snapshot(html: &str) -> String {
+    let lower = html.to_ascii_lowercase();
+    let mut out = String::with_capacity(html.len());
+    let mut pos = 0;
+
+    while let Some(rel_start) = lower[pos..].find("<input") {
+        let start = pos + rel_start;
+        let Some(rel_end) = lower[start..].find('>') else {
+            break;
+        };
+        let end = start + rel_end + 1;
+
+        out.push_str(&html[pos..start]);
+        out.push_str(&redact_value_attributes(&html[start..end]));
+        pos = end;
+    }
+
+    out.push_str(&html[pos..]);
+    out
+}
+
+fn redact_value_attributes(tag: &str) -> String {
+    let lower = tag.to_ascii_lowercase();
+    let mut out = String::with_capacity(tag.len());
+    let mut pos = 0;
+
+    while let Some(rel_value) = lower[pos..].find("value") {
+        let value_start = pos + rel_value;
+        let mut cursor = value_start + "value".len();
+
+        while lower
+            .as_bytes()
+            .get(cursor)
+            .is_some_and(u8::is_ascii_whitespace)
+        {
+            cursor += 1;
+        }
+
+        if lower.as_bytes().get(cursor) != Some(&b'=') {
+            out.push_str(&tag[pos..cursor]);
+            pos = cursor;
+            continue;
+        }
+
+        cursor += 1;
+        while lower
+            .as_bytes()
+            .get(cursor)
+            .is_some_and(u8::is_ascii_whitespace)
+        {
+            cursor += 1;
+        }
+
+        let Some(&quote) = tag.as_bytes().get(cursor) else {
+            break;
+        };
+        if quote != b'"' && quote != b'\'' {
+            out.push_str(&tag[pos..cursor]);
+            pos = cursor;
+            continue;
+        }
+
+        let value_content_start = cursor + 1;
+        let Some(rel_value_end) = tag[value_content_start..].find(quote as char) else {
+            break;
+        };
+        let value_end = value_content_start + rel_value_end;
+
+        out.push_str(&tag[pos..value_content_start]);
+        out.push_str("[redacted]");
+        pos = value_end;
+    }
+
+    out.push_str(&tag[pos..]);
+    out
+}
+
 #[async_trait]
 impl SnapshotSink for FsSnapshotSink {
     async fn capture<'a>(
@@ -31,11 +108,11 @@ impl SnapshotSink for FsSnapshotSink {
         let html_path = dir.join(format!("{label}_{ts}.html"));
         let png_path = dir.join(format!("{label}_{ts}.png"));
 
+        let html = redact_html_snapshot(html);
         let html_fut = tokio::fs::write(html_path, html);
         match png {
             Some(png) => {
-                let (html_res, png_res) =
-                    tokio::join!(html_fut, tokio::fs::write(png_path, png));
+                let (html_res, png_res) = tokio::join!(html_fut, tokio::fs::write(png_path, png));
                 if let Err(e) = html_res {
                     tracing::warn!("Failed to write HTML snapshot: {}", e);
                 }
@@ -49,5 +126,31 @@ impl SnapshotSink for FsSnapshotSink {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::redact_html_snapshot;
+
+    #[test]
+    fn redacts_login_input_values_from_snapshots() {
+        let html = r#"<input name="email" value="user@example.com"><input type="password" value="secret">"#;
+
+        let redacted = redact_html_snapshot(html);
+
+        assert!(!redacted.contains("user@example.com"));
+        assert!(!redacted.contains("secret"));
+        assert_eq!(redacted.matches("[redacted]").count(), 2);
+    }
+
+    #[test]
+    fn redacts_2fa_text_input_value_from_snapshots() {
+        let html = r#"<div><input autocomplete="off" type="text" value="746736362"></div>"#;
+
+        let redacted = redact_html_snapshot(html);
+
+        assert!(!redacted.contains("746736362"));
+        assert!(redacted.contains(r#"value="[redacted]""#));
     }
 }

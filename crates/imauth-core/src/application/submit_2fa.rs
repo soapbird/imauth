@@ -1,10 +1,10 @@
-use crate::Result;
 use crate::domain::session::{Cookie, Session, SessionState};
 use crate::domain::Platform;
 use crate::ports::browser::{BrowserSessionFactory, PlatformDriver};
 use crate::ports::repository::{CookieRepository, SessionRepository};
 use crate::ports::snapshot::SnapshotSink;
 use crate::ImauthError;
+use crate::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -61,9 +61,7 @@ impl Submit2FaUseCase {
         self.sessions.update(&session).await?;
 
         if session.state == SessionState::Connected {
-            self.cookies
-                .save(&session.platform, &cookies)
-                .await?;
+            self.cookies.save(&session.platform, &cookies).await?;
         }
 
         Ok((session, cookies))
@@ -73,13 +71,13 @@ impl Submit2FaUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Result as AppResult;
     use crate::domain::session::Cookie;
     use crate::ports::browser::{
         MockBrowserSession, MockBrowserSessionFactory, MockPageDriver, PageDriver, PlatformDriver,
     };
     use crate::ports::repository::{MockCookieRepository, MockSessionRepository};
     use crate::ports::snapshot::{MockSnapshotSink, SnapshotSink};
+    use crate::Result as AppResult;
     use async_trait::async_trait;
 
     struct ConnectingDriver;
@@ -184,14 +182,11 @@ mod tests {
         let snapshot = MockSnapshotSink::new();
 
         let mut drivers = HashMap::new();
-        drivers.insert(Platform::Instagram, Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>);
-        let uc = build_uc(
-            sessions,
-            cookies,
-            browser,
-            drivers,
-            snapshot,
+        drivers.insert(
+            Platform::Instagram,
+            Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>,
         );
+        let uc = build_uc(sessions, cookies, browser, drivers, snapshot);
         let err = uc.execute("missing", "123456").await.unwrap_err();
         assert!(matches!(err, ImauthError::NotFound(_)));
     }
@@ -215,14 +210,11 @@ mod tests {
 
         let snapshot = MockSnapshotSink::new();
         let mut drivers = HashMap::new();
-        drivers.insert(Platform::Instagram, Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>);
-        let uc = build_uc(
-            sessions,
-            cookies,
-            happy_browser(),
-            drivers,
-            snapshot,
+        drivers.insert(
+            Platform::Instagram,
+            Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>,
         );
+        let uc = build_uc(sessions, cookies, happy_browser(), drivers, snapshot);
         let (out, cookies) = uc.execute("s1", "654321").await.unwrap();
         assert_eq!(out.state, SessionState::Connected);
         assert_eq!(cookies.len(), 1);
@@ -243,14 +235,11 @@ mod tests {
 
         let snapshot = MockSnapshotSink::new();
         let mut drivers = HashMap::new();
-        drivers.insert(Platform::Instagram, Arc::new(FailingDriver) as Arc<dyn PlatformDriver>);
-        let uc = build_uc(
-            sessions,
-            cookies,
-            happy_browser(),
-            drivers,
-            snapshot,
+        drivers.insert(
+            Platform::Instagram,
+            Arc::new(FailingDriver) as Arc<dyn PlatformDriver>,
         );
+        let uc = build_uc(sessions, cookies, happy_browser(), drivers, snapshot);
         let (out, cookies) = uc.execute("s1", "000000").await.unwrap();
         assert_eq!(out.state, SessionState::Failed);
         assert!(cookies.is_empty());

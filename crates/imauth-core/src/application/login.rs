@@ -127,13 +127,13 @@ impl LoginUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Result as AppResult;
     use crate::domain::session::Cookie;
     use crate::ports::browser::{
         MockBrowserSession, MockBrowserSessionFactory, MockPageDriver, PageDriver, PlatformDriver,
     };
     use crate::ports::repository::{MockCookieRepository, MockSessionRepository};
     use crate::ports::snapshot::{MockSnapshotSink, SnapshotSink};
+    use crate::Result as AppResult;
     use async_trait::async_trait;
 
     /// Test double — sets the session to `Connected` with a sample cookie.
@@ -245,14 +245,11 @@ mod tests {
         let snapshot = MockSnapshotSink::new();
 
         let mut drivers = HashMap::new();
-        drivers.insert(Platform::Instagram, Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>);
-        let uc = build_login_use_case(
-            sessions,
-            cookies,
-            happy_browser(),
-            drivers,
-            snapshot,
+        drivers.insert(
+            Platform::Instagram,
+            Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>,
         );
+        let uc = build_login_use_case(sessions, cookies, happy_browser(), drivers, snapshot);
 
         let (tx, mut rx) = mpsc::channel(8);
         uc.execute(Platform::Instagram, "u".into(), "p".into(), tx)
@@ -283,14 +280,11 @@ mod tests {
         let snapshot = MockSnapshotSink::new();
 
         let mut drivers = HashMap::new();
-        drivers.insert(Platform::Instagram, Arc::new(FailingDriver) as Arc<dyn PlatformDriver>);
-        let uc = build_login_use_case(
-            sessions,
-            cookies,
-            happy_browser(),
-            drivers,
-            snapshot,
+        drivers.insert(
+            Platform::Instagram,
+            Arc::new(FailingDriver) as Arc<dyn PlatformDriver>,
         );
+        let uc = build_login_use_case(sessions, cookies, happy_browser(), drivers, snapshot);
 
         let (tx, mut rx) = mpsc::channel(8);
         uc.execute(Platform::Instagram, "u".into(), "p".into(), tx)
@@ -323,14 +317,11 @@ mod tests {
         let snapshot = MockSnapshotSink::new();
 
         let mut drivers = HashMap::new();
-        drivers.insert(Platform::Instagram, Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>);
-        let uc = build_login_use_case(
-            sessions,
-            cookies,
-            browser,
-            drivers,
-            snapshot,
+        drivers.insert(
+            Platform::Instagram,
+            Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>,
         );
+        let uc = build_login_use_case(sessions, cookies, browser, drivers, snapshot);
 
         let (tx, mut rx) = mpsc::channel(8);
         uc.execute(Platform::Instagram, "u".into(), "p".into(), tx)

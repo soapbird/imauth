@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
-use crate::Result;
 use crate::domain::RefreshToken;
 use crate::ports::repository::RefreshTokenRepository;
+use crate::Result;
 use async_trait::async_trait;
 use chrono::DateTime;
 use sqlx::SqlitePool;

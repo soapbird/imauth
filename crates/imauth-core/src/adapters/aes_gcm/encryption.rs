@@ -1,7 +1,7 @@
-use crate::Result;
 use crate::config::Config;
 use crate::ports::encryption::EncryptionService;
 use crate::ImauthError;
+use crate::Result;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,

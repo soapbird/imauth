@@ -1,7 +1,7 @@
-use crate::Result;
 use crate::domain::session::Cookie;
 use crate::domain::Platform;
 use crate::ports::repository::CookieRepository;
+use crate::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 

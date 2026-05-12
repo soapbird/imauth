@@ -1,7 +1,7 @@
-use crate::Result;
 use crate::domain::session::{Cookie, Session};
 use crate::domain::Platform;
 use crate::ports::snapshot::SnapshotSink;
+use crate::Result;
 use async_trait::async_trait;
 
 /// Acquires an isolated browser session (e.g. a CDP target) from a pool.

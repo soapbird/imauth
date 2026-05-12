@@ -1,5 +1,3 @@
-
-
 use clap::{Parser, Subcommand};
 use imauth_proto::generated::v1::{
     auth_service_client::AuthServiceClient, credential_service_client::CredentialServiceClient,
@@ -195,8 +193,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         break;
                     }
                     _ => {}
+                }
+            }
         }
-    }
         Commands::Status { session_id } => {
             let mut client = AuthServiceClient::new(channel);
             let resp = client

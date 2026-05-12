@@ -1,7 +1,7 @@
-use crate::Result;
 use crate::domain::session::Cookie;
 use crate::ports::browser::PageDriver;
 use crate::ImauthError;
+use crate::Result;
 use async_trait::async_trait;
 use chromiumoxide::page::Page;
 use serde::de::DeserializeOwned;
@@ -48,7 +48,9 @@ impl PageDriver for ChromiumOxidePageDriver {
         tokio::time::timeout(Duration::from_secs(timeout_secs), nav)
             .await
             .map_err(|_| {
-                ImauthError::Browser(format!("Navigation to {url} timed out after {timeout_secs}s"))
+                ImauthError::Browser(format!(
+                    "Navigation to {url} timed out after {timeout_secs}s"
+                ))
             })??;
         Ok(())
     }
@@ -189,11 +191,8 @@ impl PageDriver for ChromiumOxidePageDriver {
     }
 
     async fn content_html(&self) -> Result<String> {
-        self.eval_into(
-            "() => document.documentElement.outerHTML",
-            "content_html",
-        )
-        .await
+        self.eval_into("() => document.documentElement.outerHTML", "content_html")
+            .await
     }
 }
 

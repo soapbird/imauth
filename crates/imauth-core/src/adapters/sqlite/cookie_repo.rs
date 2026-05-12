@@ -1,6 +1,6 @@
-use crate::Result;
 use crate::domain::session::Cookie;
 use crate::ports::repository::CookieRepository;
+use crate::Result;
 use async_trait::async_trait;
 use chrono::DateTime;
 use sqlx::SqlitePool;

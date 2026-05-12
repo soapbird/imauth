@@ -10,12 +10,10 @@ pub use refresh_repo::SqliteRefreshTokenRepository;
 #[allow(unused_imports)]
 pub use session_repo::SqliteSessionRepository;
 
-use crate::Result;
 use crate::config::Config;
 use crate::ImauthError;
-use sqlx::sqlite::{
-    SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
-};
+use crate::Result;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
 use std::time::Duration;
 

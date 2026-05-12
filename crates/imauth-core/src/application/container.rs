@@ -1,7 +1,9 @@
 use crate::adapters::aes_gcm::AesGcmEncryptionService;
 use crate::adapters::chromiumoxide::{ChromiumOxideBrowserFactory, InstagramPlatformDriver};
 use crate::adapters::fs::FsSnapshotSink;
-use crate::adapters::sqlite::{self, SqliteCookieRepository, SqliteCredentialRepository, SqliteSessionRepository};
+use crate::adapters::sqlite::{
+    self, SqliteCookieRepository, SqliteCredentialRepository, SqliteSessionRepository,
+};
 use crate::application::cookies::{
     ExportNetscapeUseCase, GetConnectionStatusUseCase, GetCookiesUseCase, UpdateCookiesUseCase,
     ValidateSessionUseCase,
@@ -9,7 +11,6 @@ use crate::application::cookies::{
 use crate::application::credentials::{
     DeleteCredentialUseCase, GetCredentialUseCase, SaveCredentialUseCase,
 };
-use crate::Result;
 use crate::application::login::LoginUseCase;
 use crate::application::status::{CancelSessionUseCase, GetStatusUseCase};
 use crate::application::submit_2fa::Submit2FaUseCase;
@@ -19,6 +20,7 @@ use crate::ports::browser::{BrowserSessionFactory, PlatformDriver};
 use crate::ports::encryption::EncryptionService;
 use crate::ports::repository::{CookieRepository, CredentialRepository, SessionRepository};
 use crate::ports::snapshot::SnapshotSink;
+use crate::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -49,7 +51,8 @@ impl AppContainer {
         let encryption: Arc<dyn EncryptionService> =
             Arc::new(AesGcmEncryptionService::from_config(&config)?);
 
-        let sessions: Arc<dyn SessionRepository> = Arc::new(SqliteSessionRepository::new(pool.clone()));
+        let sessions: Arc<dyn SessionRepository> =
+            Arc::new(SqliteSessionRepository::new(pool.clone()));
         let cookies: Arc<dyn CookieRepository> =
             Arc::new(SqliteCookieRepository::new(pool.clone()));
         let credentials: Arc<dyn CredentialRepository> = Arc::new(SqliteCredentialRepository::new(

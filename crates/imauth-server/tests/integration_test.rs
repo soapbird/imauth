@@ -11,9 +11,7 @@ use imauth_core::{
             ExportNetscapeUseCase, GetConnectionStatusUseCase, GetCookiesUseCase,
             UpdateCookiesUseCase, ValidateSessionUseCase,
         },
-        credentials::{
-            DeleteCredentialUseCase, GetCredentialUseCase, SaveCredentialUseCase,
-        },
+        credentials::{DeleteCredentialUseCase, GetCredentialUseCase, SaveCredentialUseCase},
         login::LoginUseCase,
         status::{CancelSessionUseCase, GetStatusUseCase},
         submit_2fa::Submit2FaUseCase,
@@ -27,11 +25,9 @@ use imauth_core::{
 use imauth_proto::generated::v1::{
     credential_service_client::CredentialServiceClient,
     credential_service_server::CredentialServiceServer,
-    session_service_client::SessionServiceClient,
-    session_service_server::SessionServiceServer,
+    session_service_client::SessionServiceClient, session_service_server::SessionServiceServer,
     Cookie as ProtoCookie, DeleteCredentialRequest, ExportRequest, GetCookiesRequest,
-    GetCredentialRequest, Platform as ProtoPlatform, SaveCredentialRequest,
-    UpdateCookiesRequest,
+    GetCredentialRequest, Platform as ProtoPlatform, SaveCredentialRequest, UpdateCookiesRequest,
 };
 use imauth_server::grpc::{CredentialGrpcService, SessionGrpcService};
 

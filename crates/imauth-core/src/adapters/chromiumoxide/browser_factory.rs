@@ -1,7 +1,7 @@
 use crate::adapters::chromiumoxide::page_driver::ChromiumOxidePageDriver;
-use crate::Result;
 use crate::ports::browser::{BrowserSession, BrowserSessionFactory, PageDriver};
 use crate::ImauthError;
+use crate::Result;
 use async_trait::async_trait;
 use chromiumoxide::Browser;
 use futures::StreamExt;

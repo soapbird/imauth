@@ -1,6 +1,6 @@
-use crate::Result;
 use crate::domain::session::{Cookie, Session};
 use crate::domain::{Credential, RefreshToken};
+use crate::Result;
 use async_trait::async_trait;
 
 #[cfg_attr(test, mockall::automock)]

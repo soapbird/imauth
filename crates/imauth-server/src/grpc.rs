@@ -1,6 +1,11 @@
 // tonic::Status is intentionally large; this is a known clippy lint we accept.
 #![allow(clippy::result_large_err)]
 
+use futures::Stream;
+use imauth_core::application::login::LoginEvent;
+use imauth_core::domain::session::{Cookie, Session, SessionState};
+use imauth_core::domain::Platform;
+use imauth_core::AppContainer;
 use imauth_proto::generated::v1::{
     auth_service_server::AuthService, credential_service_server::CredentialService,
     session_service_server::SessionService, AuthEvent, AuthResponse, AuthStatus as ProtoAuthStatus,
@@ -10,11 +15,6 @@ use imauth_proto::generated::v1::{
     StatusRequest, Submit2FaRequest, SubmitCaptchaRequest, UpdateCookiesRequest, ValidateRequest,
     ValidationResult,
 };
-use futures::Stream;
-use imauth_core::application::login::LoginEvent;
-use imauth_core::domain::session::{Cookie, Session, SessionState};
-use imauth_core::domain::Platform;
-use imauth_core::AppContainer;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::mpsc;

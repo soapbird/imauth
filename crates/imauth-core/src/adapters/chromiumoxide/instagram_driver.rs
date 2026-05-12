@@ -1,4 +1,3 @@
-use crate::Result;
 use crate::domain::auth::{classify_auth_state, AuthCheckpoint, Phase};
 use crate::domain::selectors::INSTAGRAM_SELECTORS;
 use crate::domain::session::{Session, SessionState};
@@ -6,6 +5,7 @@ use crate::domain::Platform;
 use crate::ports::browser::{PageDriver, PlatformDriver};
 use crate::ports::snapshot::SnapshotSink;
 use crate::ImauthError;
+use crate::Result;
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
 

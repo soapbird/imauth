@@ -1,7 +1,7 @@
-use crate::Result;
 use crate::domain::session::Session;
 use crate::ports::repository::SessionRepository;
 use crate::ImauthError;
+use crate::Result;
 use std::sync::Arc;
 
 pub struct GetStatusUseCase {
