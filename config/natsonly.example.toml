@@ -1,3 +1,0 @@
-[nats]
-url = "nats://localhost:4222"
-stream_name = "imauth"

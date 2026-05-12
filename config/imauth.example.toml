@@ -1,10 +1,6 @@
 [server]
 grpc_addr = "0.0.0.0:50051"
 
-[nats]
-url = "nats://localhost:4222"
-stream_name = "imauth"
-
 [browser]
 cdp_url = "http://localhost:9222"
 max_pool_size = 3
