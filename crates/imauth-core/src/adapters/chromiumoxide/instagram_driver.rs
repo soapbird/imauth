@@ -40,8 +40,33 @@ async fn snapshot(page: &dyn PageDriver, sink: &dyn SnapshotSink, session_id: &s
     sink.capture(session_id, label, &html, png.as_deref()).await;
 }
 
+fn is_transient_page_context_error(error: &ImauthError) -> bool {
+    let ImauthError::Browser(message) = error else {
+        return false;
+    };
+
+    [
+        "Cannot find context with specified id",
+        "Execution context was destroyed",
+        "Cannot find context",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
+}
+
 async fn inspect(page: &dyn PageDriver, platform: Platform) -> Result<AuthCheckpoint> {
-    let (text, cookies) = tokio::try_join!(page.get_page_text(), page.get_cookies())?;
+    // Read cookies first so a successful login is not lost if Instagram navigates
+    // immediately afterwards and invalidates the JavaScript execution context.
+    let cookies = page.get_cookies().await?;
+    let text = match page.get_page_text().await {
+        Ok(text) => text,
+        Err(error) if is_transient_page_context_error(&error) => {
+            tracing::warn!("Transient page context error while inspecting auth state: {error}");
+            String::new()
+        }
+        Err(error) => return Err(error),
+    };
+
     Ok(classify_auth_state(&text, cookies, platform))
 }
 
@@ -268,7 +293,8 @@ impl PlatformDriver for InstagramPlatformDriver {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_instagram_2fa_code;
+    use super::{is_transient_page_context_error, normalize_instagram_2fa_code};
+    use crate::ImauthError;
 
     #[test]
     fn normalize_instagram_2fa_code_preserves_leading_zeroes() {
@@ -283,5 +309,21 @@ mod tests {
     #[test]
     fn normalize_instagram_2fa_code_strips_digit_separators() {
         assert_eq!(normalize_instagram_2fa_code("736 362"), "736362");
+    }
+    #[test]
+    fn context_loss_during_navigation_is_transient() {
+        let error = ImauthError::Browser(
+            "get_page_text eval failed: Error -32000: Cannot find context with specified id"
+                .to_string(),
+        );
+
+        assert!(is_transient_page_context_error(&error));
+    }
+
+    #[test]
+    fn non_context_browser_errors_are_not_transient() {
+        let error = ImauthError::Browser("Element not found input[name='email']".to_string());
+
+        assert!(!is_transient_page_context_error(&error));
     }
 }
