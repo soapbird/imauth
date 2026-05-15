@@ -4,7 +4,7 @@ set -e
 # Start Chromium in the background (binds to 127.0.0.1:9223)
 /usr/bin/chromium \
   --remote-debugging-port=9223 \
-  --remote-allow-origins=* \
+  --remote-allow-origins=http://localhost:50051 \
   --headless=new \
   --disable-gpu \
   --no-sandbox \

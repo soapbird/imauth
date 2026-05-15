@@ -3,7 +3,6 @@ services:
     image: selenium/standalone-chromium:latest
     shm_size: '2gb'
     ports:
-      - "${IMAUTH_CDP_HOST_PORT:-9222}:9222"
       - "${IMAUTH_GRPC_HOST_PORT:-50051}:50051"
     volumes:
       - ./scripts/chrome-entrypoint.sh:/chrome-entrypoint.sh:ro
@@ -22,6 +21,9 @@ services:
       - IMAUTH_CDP_URL=http://localhost:9222
       - IMAUTH_GRPC_ADDR=0.0.0.0:50051
       - IMAUTH_DATA_DIR=/data/.imauth/data
+      # Required: 32-byte base64-encoded AES-256 key
+      # Generate with: openssl rand -base64 32
+      - IMAUTH_ENCRYPTION_KEY=${IMAUTH_ENCRYPTION_KEY}
     volumes:
       - imauth-data:/data/.imauth
     depends_on:

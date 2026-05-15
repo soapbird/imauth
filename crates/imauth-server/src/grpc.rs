@@ -28,7 +28,10 @@ fn map_auth_err(err: imauth_core::ImauthError) -> tonic::Status {
     match err {
         ImauthError::NotFound(m) => tonic::Status::not_found(m),
         ImauthError::Platform(m) => tonic::Status::invalid_argument(m),
-        other => tonic::Status::internal(other.to_string()),
+        other => {
+            tracing::error!(error = %other, "Internal error mapped to gRPC status");
+            tonic::Status::internal("Internal server error")
+        }
     }
 }
 

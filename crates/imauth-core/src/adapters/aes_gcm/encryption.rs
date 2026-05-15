@@ -26,19 +26,18 @@ impl AesGcmEncryptionService {
         Ok(Self { cipher })
     }
 
-    /// Build the encryption service from a config. If no key is configured a fresh
-    /// random key is generated for the process lifetime and a warning is logged —
-    /// matching the prior behavior of `ImauthCore::new`.
+    /// Build the encryption service from a config. A key must be configured;
+    /// otherwise an error is returned.
     pub fn from_config(config: &Config) -> Result<Self> {
-        let key = config
-            .encryption_key()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| {
-                let k = generate_key();
-                tracing::warn!("No encryption key configured; generated a temporary one");
-                k
-            });
-        Self::from_key(&key)
+        let key = config.encryption_key().ok_or_else(|| {
+            ImauthError::Config(
+                "Encryption key is required. Set IMAUTH_ENCRYPTION_KEY environment variable \
+                     or add encryption_key to [security] in config.toml. \
+                     Generate a key with: openssl rand -base64 32"
+                    .to_string(),
+            )
+        })?;
+        Self::from_key(key)
     }
 }
 
@@ -70,5 +69,34 @@ impl EncryptionService for AesGcmEncryptionService {
         let plaintext = self.cipher.decrypt(nonce, encrypted)?;
         String::from_utf8(plaintext)
             .map_err(|e| ImauthError::Encryption(format!("Invalid UTF-8: {e}")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+
+    #[test]
+    fn from_config_rejects_missing_key() {
+        let config = Config::default();
+        let result = AesGcmEncryptionService::from_config(&config);
+        assert!(result.is_err());
+        match result {
+            Err(crate::ImauthError::Config(msg)) => {
+                assert!(
+                    msg.contains("Encryption key is required"),
+                    "expected key-required error, got: {msg}"
+                );
+            }
+            _ => panic!("Expected Config error"),
+        }
+    }
+
+    #[test]
+    fn from_config_accepts_configured_key() {
+        let mut config = Config::default();
+        config.security.encryption_key = Some(generate_key());
+        assert!(AesGcmEncryptionService::from_config(&config).is_ok());
     }
 }

@@ -35,7 +35,7 @@ COPY --from=builder /build/target/release/imauth-server /usr/local/bin/imauth-se
 COPY --from=builder /build/target/release/imauth /usr/local/bin/imauth
 
 # Data directory
-RUN mkdir -p /data/.imauth && chown -R imauth:imauth /data
+RUN mkdir -p /data/.imauth && chown -R imauth:imauth /data && chmod 700 /data
 ENV HOME=/data
 
 USER imauth

@@ -169,6 +169,12 @@ impl Config {
             let toml = toml::to_string_pretty(&Self::default()).map_err(|e| {
                 crate::ImauthError::Config(format!("Failed to serialize config: {e}"))
             })?;
+            let toml = toml.replace(
+                "encryption_key = \"\"",
+                "# REQUIRED: 32-byte base64-encoded AES-256 key.\n\
+                 # Generate with: openssl rand -base64 32\n\
+                 encryption_key = \"\"",
+            );
             match std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)

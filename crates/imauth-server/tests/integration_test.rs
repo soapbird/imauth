@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 use std::sync::Arc;
 
 use imauth_core::{
@@ -107,6 +109,8 @@ async fn test_container() -> AppContainer {
     let mut config = Config::default();
     let temp_dir = std::env::temp_dir().join(format!("imauth_test_{}", uuid::Uuid::new_v4()));
     config.storage.data_dir = temp_dir;
+    config.security.encryption_key =
+        Some("pZN6lLjwDGIpj/BUWeTFnsB7GUp9bSuwnUcS3gYkQ2A=".to_string());
 
     let pool = init_pool(&config).await.unwrap();
     run_migrations(&pool).await.unwrap();
@@ -159,7 +163,7 @@ async fn test_container() -> AppContainer {
     }
 }
 
-async fn start_test_server(container: Arc<AppContainer>) -> String {
+async fn start_test_server(container: Arc<AppContainer>, api_key: Option<String>) -> String {
     let session = SessionGrpcService::new(container.clone());
     let credential = CredentialGrpcService::new(container.clone());
 
@@ -167,7 +171,31 @@ async fn start_test_server(container: Arc<AppContainer>) -> String {
     let addr = listener.local_addr().unwrap();
 
     tokio::spawn(async move {
+        let key = api_key.map(std::sync::Arc::new);
         tonic::transport::Server::builder()
+            .layer(tonic::service::interceptor(
+                move |req: tonic::Request<()>| {
+                    if let Some(ref key) = key {
+                        let provided = req
+                            .metadata()
+                            .get("authorization")
+                            .and_then(|v| v.to_str().ok())
+                            .and_then(|s| s.strip_prefix("Bearer "))
+                            .or_else(|| {
+                                req.metadata()
+                                    .get("x-api-key")
+                                    .and_then(|v| v.to_str().ok())
+                            });
+
+                        match provided {
+                            Some(k) if k == **key => Ok(req),
+                            _ => Err(tonic::Status::unauthenticated("Invalid or missing API key")),
+                        }
+                    } else {
+                        Ok(req)
+                    }
+                },
+            ))
             .add_service(SessionServiceServer::new(session))
             .add_service(CredentialServiceServer::new(credential))
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
@@ -182,30 +210,39 @@ async fn start_test_server(container: Arc<AppContainer>) -> String {
 // Tests
 // ---------------------------------------------------------------------------
 
+fn with_key<T>(msg: T) -> tonic::Request<T> {
+    let mut req = tonic::Request::new(msg);
+    req.metadata_mut().insert(
+        "authorization",
+        "Bearer test-api-key".parse().expect("valid ascii"),
+    );
+    req
+}
+
 #[tokio::test]
 async fn test_credential_crud() {
     let container = Arc::new(test_container().await);
-    let addr = start_test_server(container).await;
+    let addr = start_test_server(container, Some("test-api-key".to_string())).await;
 
     let mut client = CredentialServiceClient::connect(addr).await.unwrap();
 
     // Save
     let resp = client
-        .save(SaveCredentialRequest {
+        .save(with_key(SaveCredentialRequest {
             platform: ProtoPlatform::Instagram as i32,
             username: "testuser".into(),
             password: "testpass".into(),
             twofa_method: "sms".into(),
-        })
+        }))
         .await
         .unwrap();
     assert!(resp.into_inner().success);
 
     // Get
     let resp = client
-        .get(GetCredentialRequest {
+        .get(with_key(GetCredentialRequest {
             platform: ProtoPlatform::Instagram as i32,
-        })
+        }))
         .await
         .unwrap();
     let info = resp.into_inner();
@@ -214,9 +251,9 @@ async fn test_credential_crud() {
 
     // Delete
     let resp = client
-        .delete(DeleteCredentialRequest {
+        .delete(with_key(DeleteCredentialRequest {
             platform: ProtoPlatform::Instagram as i32,
-        })
+        }))
         .await
         .unwrap();
     assert!(resp.into_inner().success);
@@ -225,13 +262,13 @@ async fn test_credential_crud() {
 #[tokio::test]
 async fn test_cookie_crud() {
     let container = Arc::new(test_container().await);
-    let addr = start_test_server(container).await;
+    let addr = start_test_server(container, Some("test-api-key".to_string())).await;
 
     let mut client = SessionServiceClient::connect(addr).await.unwrap();
 
     // Update cookies
     let resp = client
-        .update_cookies(UpdateCookiesRequest {
+        .update_cookies(with_key(UpdateCookiesRequest {
             platform: ProtoPlatform::Instagram as i32,
             cookies: vec![ProtoCookie {
                 name: "sessionid".into(),
@@ -242,7 +279,7 @@ async fn test_cookie_crud() {
                 http_only: true,
                 secure: true,
             }],
-        })
+        }))
         .await
         .unwrap();
     let cookies = resp.into_inner().cookies;
@@ -250,10 +287,10 @@ async fn test_cookie_crud() {
 
     // Get cookies
     let resp = client
-        .get_cookies(GetCookiesRequest {
+        .get_cookies(with_key(GetCookiesRequest {
             platform: ProtoPlatform::Instagram as i32,
             domains: vec![],
-        })
+        }))
         .await
         .unwrap();
     let cookies = resp.into_inner().cookies;
@@ -262,11 +299,57 @@ async fn test_cookie_crud() {
 
     // Export netscape
     let resp = client
-        .export_netscape(ExportRequest {
+        .export_netscape(with_key(ExportRequest {
             platform: ProtoPlatform::Instagram as i32,
-        })
+        }))
         .await
         .unwrap();
     let content = resp.into_inner().content;
     assert!(content.contains("sessionid"));
+}
+
+#[tokio::test]
+async fn test_auth_rejected_without_api_key() {
+    let container = Arc::new(test_container().await);
+    let addr = start_test_server(container, Some("test-api-key".to_string())).await;
+
+    let mut client = CredentialServiceClient::connect(addr).await.unwrap();
+
+    let resp = client
+        .save(tonic::Request::new(SaveCredentialRequest {
+            platform: ProtoPlatform::Instagram as i32,
+            username: "testuser".into(),
+            password: "testpass".into(),
+            twofa_method: "sms".into(),
+        }))
+        .await;
+
+    assert!(resp.is_err());
+    let err = resp.unwrap_err();
+    assert_eq!(err.code(), tonic::Code::Unauthenticated);
+}
+
+#[tokio::test]
+async fn test_auth_rejected_with_wrong_api_key() {
+    let container = Arc::new(test_container().await);
+    let addr = start_test_server(container, Some("test-api-key".to_string())).await;
+
+    let mut client = CredentialServiceClient::connect(addr).await.unwrap();
+
+    let mut req = tonic::Request::new(SaveCredentialRequest {
+        platform: ProtoPlatform::Instagram as i32,
+        username: "testuser".into(),
+        password: "testpass".into(),
+        twofa_method: "sms".into(),
+    });
+    req.metadata_mut().insert(
+        "authorization",
+        "Bearer wrong-key".parse().expect("valid ascii"),
+    );
+
+    let resp = client.save(req).await;
+
+    assert!(resp.is_err());
+    let err = resp.unwrap_err();
+    assert_eq!(err.code(), tonic::Code::Unauthenticated);
 }
