@@ -1,6 +1,7 @@
+use crate::application::active_session::ActiveSessionRegistry;
 use crate::domain::session::{Cookie, Session, SessionState};
 use crate::domain::Platform;
-use crate::ports::browser::{BrowserSessionFactory, PlatformDriver};
+use crate::ports::browser::PlatformDriver;
 use crate::ports::repository::{CookieRepository, SessionRepository};
 use crate::ports::snapshot::SnapshotSink;
 use crate::ImauthError;
@@ -11,7 +12,7 @@ use std::sync::Arc;
 pub struct Submit2FaUseCase {
     sessions: Arc<dyn SessionRepository>,
     cookies: Arc<dyn CookieRepository>,
-    browser: Arc<dyn BrowserSessionFactory>,
+    active: Arc<ActiveSessionRegistry>,
     drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
     snapshot: Arc<dyn SnapshotSink>,
 }
@@ -20,14 +21,14 @@ impl Submit2FaUseCase {
     pub fn new(
         sessions: Arc<dyn SessionRepository>,
         cookies: Arc<dyn CookieRepository>,
-        browser: Arc<dyn BrowserSessionFactory>,
+        active: Arc<ActiveSessionRegistry>,
         drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
         snapshot: Arc<dyn SnapshotSink>,
     ) -> Self {
         Self {
             sessions,
             cookies,
-            browser,
+            active,
             drivers,
             snapshot,
         }
@@ -48,14 +49,26 @@ impl Submit2FaUseCase {
             ImauthError::Platform(format!("No driver for platform {}", platform.as_str()))
         })?;
 
-        let browser_session = self.browser.acquire().await?;
-        let pages = browser_session.existing_pages().await?;
-        let page = pages.into_iter().next().ok_or_else(|| {
-            ImauthError::Browser("No browser page found — the 2FA page may have been closed".into())
+        // Take the browser+page pair that Login left bound to this session.
+        // Drop returns the browser to the pool whether submit succeeds or
+        // errors. Without this binding, submit_2fa was acquiring any browser
+        // from the pool and typing the code into the wrong tab (Red Team
+        // finding: cross-session credential leak).
+        let bound = self.active.take(session_id).await.ok_or_else(|| {
+            ImauthError::Browser(
+                "No browser bound to this session (login may have already failed or been cancelled)".into(),
+            )
         })?;
 
+        if bound.platform != platform {
+            return Err(ImauthError::Platform(format!(
+                "Session {} platform mismatch: bound={:?}, session={:?}",
+                session_id, bound.platform, platform
+            )));
+        }
+
         let cookies = driver
-            .submit_2fa(&*page, platform, code, &mut session, &*self.snapshot)
+            .submit_2fa(&*bound.page, platform, code, &mut session, &*self.snapshot)
             .await?;
 
         self.sessions.update(&session).await?;
@@ -71,10 +84,9 @@ impl Submit2FaUseCase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::application::active_session::ActiveLoginSession;
     use crate::domain::session::Cookie;
-    use crate::ports::browser::{
-        MockBrowserSession, MockBrowserSessionFactory, MockPageDriver, PageDriver, PlatformDriver,
-    };
+    use crate::ports::browser::{MockBrowserSession, MockPageDriver, PageDriver, PlatformDriver};
     use crate::ports::repository::{MockCookieRepository, MockSessionRepository};
     use crate::ports::snapshot::{MockSnapshotSink, SnapshotSink};
     use crate::Result as AppResult;
@@ -145,32 +157,30 @@ mod tests {
     fn build_uc(
         sessions: MockSessionRepository,
         cookies: MockCookieRepository,
-        browser: MockBrowserSessionFactory,
+        active: Arc<ActiveSessionRegistry>,
         drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
         snapshot: MockSnapshotSink,
     ) -> Submit2FaUseCase {
         Submit2FaUseCase::new(
             Arc::new(sessions),
             Arc::new(cookies),
-            Arc::new(browser),
+            active,
             drivers,
             Arc::new(snapshot),
         )
     }
 
-    fn happy_browser() -> MockBrowserSessionFactory {
-        let mut factory = MockBrowserSessionFactory::new();
-        factory.expect_acquire().return_once(|| {
-            let mut bs = MockBrowserSession::new();
-            bs.expect_existing_pages().return_once(|| {
-                let page = MockPageDriver::new();
-                Ok(vec![
-                    Box::new(page) as Box<dyn crate::ports::browser::PageDriver>
-                ])
-            });
-            Ok(Box::new(bs))
-        });
-        factory
+    async fn register_active_session(
+        registry: &ActiveSessionRegistry,
+        session_id: &str,
+        platform: Platform,
+    ) {
+        let entry = ActiveLoginSession {
+            browser: Box::new(MockBrowserSession::new()),
+            page: Box::new(MockPageDriver::new()),
+            platform,
+        };
+        registry.register(session_id.to_string(), entry).await;
     }
 
     #[tokio::test]
@@ -178,15 +188,15 @@ mod tests {
         let mut sessions = MockSessionRepository::new();
         sessions.expect_get().return_once(|_| Ok(None));
         let cookies = MockCookieRepository::new();
-        let browser = MockBrowserSessionFactory::new();
         let snapshot = MockSnapshotSink::new();
+        let active = Arc::new(ActiveSessionRegistry::new());
 
         let mut drivers = HashMap::new();
         drivers.insert(
             Platform::Instagram,
             Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>,
         );
-        let uc = build_uc(sessions, cookies, browser, drivers, snapshot);
+        let uc = build_uc(sessions, cookies, active, drivers, snapshot);
         let err = uc.execute("missing", "123456").await.unwrap_err();
         assert!(matches!(err, ImauthError::NotFound(_)));
     }
@@ -209,15 +219,21 @@ mod tests {
             .returning(|_, _| Ok(()));
 
         let snapshot = MockSnapshotSink::new();
+        let active = Arc::new(ActiveSessionRegistry::new());
+        register_active_session(&active, "s1", Platform::Instagram).await;
+
         let mut drivers = HashMap::new();
         drivers.insert(
             Platform::Instagram,
             Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>,
         );
-        let uc = build_uc(sessions, cookies, happy_browser(), drivers, snapshot);
+        let uc = build_uc(sessions, cookies, active.clone(), drivers, snapshot);
         let (out, cookies) = uc.execute("s1", "654321").await.unwrap();
         assert_eq!(out.state, SessionState::Connected);
         assert_eq!(cookies.len(), 1);
+        // Binding must be released after submit succeeds so the browser
+        // returns to the pool.
+        assert_eq!(active.len().await, 0);
     }
 
     #[tokio::test]
@@ -234,14 +250,46 @@ mod tests {
         cookies.expect_save().times(0);
 
         let snapshot = MockSnapshotSink::new();
+        let active = Arc::new(ActiveSessionRegistry::new());
+        register_active_session(&active, "s1", Platform::Instagram).await;
+
         let mut drivers = HashMap::new();
         drivers.insert(
             Platform::Instagram,
             Arc::new(FailingDriver) as Arc<dyn PlatformDriver>,
         );
-        let uc = build_uc(sessions, cookies, happy_browser(), drivers, snapshot);
+        let uc = build_uc(sessions, cookies, active.clone(), drivers, snapshot);
         let (out, cookies) = uc.execute("s1", "000000").await.unwrap();
         assert_eq!(out.state, SessionState::Failed);
         assert!(cookies.is_empty());
+        // Even on failure the binding is released — caller restarts via
+        // a fresh Login flow.
+        assert_eq!(active.len().await, 0);
+    }
+
+    #[tokio::test]
+    async fn submit_2fa_returns_error_when_no_active_browser_binding() {
+        // Session row exists but Login never registered a browser binding
+        // (e.g., login already terminated or was cancelled). Returning a
+        // typed Browser error makes the failure observable instead of
+        // silently typing into a stranger's tab.
+        let stored = Session::new("orphan".into(), "instagram".into());
+        let mut sessions = MockSessionRepository::new();
+        sessions.expect_get().return_once({
+            let s = stored.clone();
+            move |_| Ok(Some(s))
+        });
+        let cookies = MockCookieRepository::new();
+        let snapshot = MockSnapshotSink::new();
+        let active = Arc::new(ActiveSessionRegistry::new());
+
+        let mut drivers = HashMap::new();
+        drivers.insert(
+            Platform::Instagram,
+            Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>,
+        );
+        let uc = build_uc(sessions, cookies, active, drivers, snapshot);
+        let err = uc.execute("orphan", "123456").await.unwrap_err();
+        assert!(matches!(err, ImauthError::Browser(_)));
     }
 }

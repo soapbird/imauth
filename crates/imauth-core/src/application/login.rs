@@ -1,3 +1,4 @@
+use crate::application::active_session::{ActiveLoginSession, ActiveSessionRegistry};
 use crate::domain::session::{Cookie, Session, SessionState};
 use crate::domain::Platform;
 use crate::ports::browser::{BrowserSessionFactory, PlatformDriver};
@@ -13,10 +14,27 @@ pub enum LoginEvent {
     Final(Session, Vec<Cookie>),
 }
 
+/// Send a LoginEvent, logging when the receiver is gone instead of silently
+/// dropping the event. Returns `true` when the channel is closed so callers
+/// can short-circuit the rest of the login pipeline.
+async fn send_or_warn(
+    tx: &mpsc::Sender<LoginEvent>,
+    event: LoginEvent,
+    stage: &'static str,
+) -> bool {
+    if let Err(e) = tx.send(event).await {
+        tracing::warn!(stage = stage, "login event dropped: receiver gone ({e})");
+        true
+    } else {
+        false
+    }
+}
+
 pub struct LoginUseCase {
     sessions: Arc<dyn SessionRepository>,
     cookies: Arc<dyn CookieRepository>,
     browser: Arc<dyn BrowserSessionFactory>,
+    active: Arc<ActiveSessionRegistry>,
     drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
     snapshot: Arc<dyn SnapshotSink>,
 }
@@ -26,6 +44,7 @@ impl LoginUseCase {
         sessions: Arc<dyn SessionRepository>,
         cookies: Arc<dyn CookieRepository>,
         browser: Arc<dyn BrowserSessionFactory>,
+        active: Arc<ActiveSessionRegistry>,
         drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
         snapshot: Arc<dyn SnapshotSink>,
     ) -> Self {
@@ -33,6 +52,7 @@ impl LoginUseCase {
             sessions,
             cookies,
             browser,
+            active,
             drivers,
             snapshot,
         }
@@ -52,30 +72,44 @@ impl LoginUseCase {
             Ok(s) => s,
             Err(e) => {
                 tracing::error!("failed to create session: {e}");
-                let mut failed = Session::new(
-                    uuid::Uuid::new_v4().to_string(),
-                    platform.as_str().to_string(),
-                );
+                // Use an empty session_id so callers don't get a UUID that
+                // doesn't exist in the DB. Honest signal: "this session never
+                // persisted, GetStatus will return NotFound".
+                let mut failed = Session::new(String::new(), platform.as_str().to_string());
                 failed.transition(
                     SessionState::Failed,
                     Some("Failed to create session".into()),
                 );
-                let _ = tx.send(LoginEvent::Final(failed, vec![])).await;
+                send_or_warn(&tx, LoginEvent::Final(failed, vec![]), "session-create-fail").await;
                 return;
             }
         };
 
-        let _ = tx.send(LoginEvent::Started(session.clone())).await;
+        if send_or_warn(&tx, LoginEvent::Started(session.clone()), "started").await {
+            // Client already dropped the receiver before we sent anything.
+            tracing::info!(session_id = %session.id, "login stream cancelled before Started; aborting");
+            return;
+        }
+
+        if tx.is_closed() {
+            tracing::info!(session_id = %session.id, "login cancelled after session create; aborting before browser acquire");
+            return;
+        }
 
         let browser_session = match self.browser.acquire().await {
             Ok(b) => b,
             Err(e) => {
                 session.transition(SessionState::Failed, Some(format!("Browser error: {e}")));
                 let _ = self.sessions.update(&session).await;
-                let _ = tx.send(LoginEvent::Final(session, vec![])).await;
+                send_or_warn(&tx, LoginEvent::Final(session, vec![]), "browser-acquire-fail").await;
                 return;
             }
         };
+
+        if tx.is_closed() {
+            tracing::info!(session_id = %session.id, "login cancelled after browser acquire");
+            return;
+        }
 
         let page = match browser_session.new_page().await {
             Ok(p) => p,
@@ -85,7 +119,7 @@ impl LoginUseCase {
                     Some(format!("Failed to open page: {e}")),
                 );
                 let _ = self.sessions.update(&session).await;
-                let _ = tx.send(LoginEvent::Final(session, vec![])).await;
+                send_or_warn(&tx, LoginEvent::Final(session, vec![]), "page-open-fail").await;
                 return;
             }
         };
@@ -98,7 +132,7 @@ impl LoginUseCase {
                     Some(format!("No driver for platform {}", platform.as_str())),
                 );
                 let _ = self.sessions.update(&session).await;
-                let _ = tx.send(LoginEvent::Final(session, vec![])).await;
+                send_or_warn(&tx, LoginEvent::Final(session, vec![]), "no-driver").await;
                 return;
             }
         };
@@ -129,7 +163,29 @@ impl LoginUseCase {
             }
         }
 
-        let _ = tx.send(LoginEvent::Final(session, cookies)).await;
+        // If the driver left the session in a state that needs follow-up input
+        // (2FA, captcha), pin the browser+page to this session_id so the
+        // matching Submit2Fa / SubmitCaptcha calls drive THIS browser, not an
+        // arbitrary one from the pool. Drop on terminal states releases the
+        // browser back to the pool immediately.
+        if matches!(
+            session.state,
+            SessionState::Needs2Fa | SessionState::NeedsCaptcha
+        ) {
+            let entry = ActiveLoginSession {
+                browser: browser_session,
+                page,
+                platform,
+            };
+            self.active.register(session.id.clone(), entry).await;
+        } else {
+            // Connected / Failed / etc — let the values fall out of scope so
+            // the BrowserSession Drop returns the browser to the pool.
+            drop(page);
+            drop(browser_session);
+        }
+
+        send_or_warn(&tx, LoginEvent::Final(session, cookies), "final").await;
     }
 }
 
@@ -220,6 +276,7 @@ mod tests {
             Arc::new(sessions),
             Arc::new(cookies),
             Arc::new(browser),
+            Arc::new(ActiveSessionRegistry::new()),
             drivers,
             Arc::new(snapshot),
         )
@@ -337,6 +394,16 @@ mod tests {
         match final_evt {
             LoginEvent::Final(s, cookies) => {
                 assert_eq!(s.state, SessionState::Failed);
+                // Empty session_id signals "never persisted" so the client
+                // can distinguish DB-failure from a real session that later
+                // transitioned to Failed.
+                assert_eq!(s.id, "", "unpersisted session must carry an empty id");
+                assert_eq!(s.platform, Platform::Instagram.as_str());
+                assert_eq!(
+                    s.message.as_deref(),
+                    Some("Failed to create session"),
+                    "operators rely on this exact wording to debug DB failures"
+                );
                 assert!(cookies.is_empty());
             }
             _ => panic!("expected Final, got Started — clients would see empty stream"),

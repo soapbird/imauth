@@ -4,6 +4,7 @@ use crate::adapters::fs::FsSnapshotSink;
 use crate::adapters::sqlite::{
     self, SqliteCookieRepository, SqliteCredentialRepository, SqliteSessionRepository,
 };
+use crate::application::active_session::ActiveSessionRegistry;
 use crate::application::cookies::{
     ExportNetscapeUseCase, GetConnectionStatusUseCase, GetCookiesUseCase, UpdateCookiesUseCase,
     ValidateSessionUseCase,
@@ -72,17 +73,24 @@ impl AppContainer {
 
         let snapshot: Arc<dyn SnapshotSink> = Arc::new(FsSnapshotSink::new(config.snapshot_dir()));
 
+        // One process-wide registry binds session_id -> (browser, page) for
+        // the lifetime of a 2FA/captcha-required login. Login registers,
+        // Submit2Fa takes. Without this, Submit2Fa would acquire any browser
+        // from the pool and type 2FA codes into the wrong tab.
+        let active = Arc::new(ActiveSessionRegistry::new());
+
         let login = Arc::new(LoginUseCase::new(
             sessions.clone(),
             cookies.clone(),
             browser.clone(),
+            active.clone(),
             drivers.clone(),
             snapshot.clone(),
         ));
         let submit_2fa = Arc::new(Submit2FaUseCase::new(
             sessions.clone(),
             cookies.clone(),
-            browser.clone(),
+            active.clone(),
             drivers.clone(),
             snapshot.clone(),
         ));
