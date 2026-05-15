@@ -5,9 +5,7 @@ pub mod session_repo;
 
 pub use cookie_repo::SqliteCookieRepository;
 pub use credential_repo::SqliteCredentialRepository;
-#[allow(unused_imports)]
 pub use refresh_repo::SqliteRefreshTokenRepository;
-#[allow(unused_imports)]
 pub use session_repo::SqliteSessionRepository;
 
 use crate::config::Config;
@@ -27,16 +25,46 @@ pub async fn init_pool(config: &Config) -> Result<SqlitePool> {
     })?;
     std::fs::create_dir_all(db_dir)?;
 
+    // Tighten dir + db file perms: SQLite stores AES-encrypted credentials and
+    // cookies, but the AES key is in env/config — anyone who can read these
+    // files plus the key plaintext recovers credentials. chmod 0700 on dir
+    // and 0600 on db/-wal/-shm files keeps them off other host UIDs when
+    // /data is bind-mounted.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(db_dir, std::fs::Permissions::from_mode(0o700));
+    }
+
     let options = SqliteConnectOptions::new()
         .filename(&db_path)
         .create_if_missing(true)
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal)
         .busy_timeout(Duration::from_secs(5));
-    Ok(SqlitePoolOptions::new()
+    let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect_with(options)
-        .await?)
+        .await?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for suffix in ["", "-wal", "-shm"] {
+            let p = if suffix.is_empty() {
+                db_path.clone()
+            } else {
+                let mut s = db_path.clone().into_os_string();
+                s.push(suffix);
+                std::path::PathBuf::from(s)
+            };
+            if p.exists() {
+                let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
+            }
+        }
+    }
+
+    Ok(pool)
 }
 
 pub async fn run_migrations(pool: &SqlitePool) -> Result<()> {

@@ -1,6 +1,9 @@
 services:
   chrome:
-    image: selenium/standalone-chromium:latest
+    # Pinned to a specific tag so Chromium/CDP wire format and login selectors
+    # don't shift under upstream changes. Bump intentionally with the matching
+    # chromiumoxide crate update.
+    image: selenium/standalone-chromium:131.0
     shm_size: '2gb'
     ports:
       - "${IMAUTH_GRPC_HOST_PORT:-50051}:50051"
