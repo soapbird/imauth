@@ -24,12 +24,22 @@ const packageDefinition = protoLoader.loadSync(
 
 const proto = grpc.loadPackageDefinition(packageDefinition) as any;
 
+export interface ImauthClientOptions {
+  /** Bearer API key to attach as `authorization: Bearer <key>` on every call. */
+  apiKey?: string;
+}
+
 export class ImauthClient {
   private authClient: any;
   private sessionClient: any;
   private credentialClient: any;
+  private apiKey?: string;
 
-  constructor(serverAddress: string = "localhost:50051") {
+  constructor(
+    serverAddress: string = "localhost:50051",
+    options: ImauthClientOptions = {}
+  ) {
+    this.apiKey = options.apiKey;
     const credentials = grpc.credentials.createInsecure();
     this.authClient = new proto.imauth.v1.AuthService(
       serverAddress,
@@ -45,49 +55,159 @@ export class ImauthClient {
     );
   }
 
+  /** Build per-call metadata including the bearer API key (if set). */
+  private buildMetadata(): grpc.Metadata {
+    const meta = new grpc.Metadata();
+    if (this.apiKey) {
+      meta.set("authorization", `Bearer ${this.apiKey}`);
+    }
+    return meta;
+  }
+
+  // --- auth ---------------------------------------------------------------
+
   login(
     platform: Platform,
     username: string,
     password: string
   ): grpc.ClientReadableStream<any> {
-    return this.authClient.Login({ platform, username, password });
+    return this.authClient.Login(
+      { platform, username, password },
+      this.buildMetadata()
+    );
   }
 
   submit2FA(sessionId: string, code: string): Promise<any> {
     return new Promise((resolve, reject) => {
-      this.authClient.Submit2FA({ sessionId, code }, (err: any, response: any) => {
-        if (err) reject(err);
-        else resolve(response);
-      });
+      this.authClient.Submit2FA(
+        { session_id: sessionId, code },
+        this.buildMetadata(),
+        (err: any, response: any) => {
+          if (err) reject(err);
+          else resolve(response);
+        }
+      );
     });
   }
 
-  getCookies(platform: Platform): Promise<Cookie[]> {
+  submitCaptcha(sessionId: string, solution: string): Promise<any> {
     return new Promise((resolve, reject) => {
-      this.sessionClient.GetCookies({ platform }, (err: any, response: any) => {
-        if (err) reject(err);
-        else resolve(response.cookies || []);
-      });
+      this.authClient.SubmitCaptcha(
+        { session_id: sessionId, solution },
+        this.buildMetadata(),
+        (err: any, response: any) => {
+          if (err) reject(err);
+          else resolve(response);
+        }
+      );
+    });
+  }
+
+  getStatus(sessionId: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      this.authClient.GetStatus(
+        { session_id: sessionId },
+        this.buildMetadata(),
+        (err: any, response: any) => {
+          if (err) {
+            if (err.code === grpc.status.NOT_FOUND) resolve(null);
+            else reject(err);
+          } else resolve(response);
+        }
+      );
+    });
+  }
+
+  cancel(sessionId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.authClient.Cancel(
+        { session_id: sessionId },
+        this.buildMetadata(),
+        (err: any) => {
+          if (err && err.code !== grpc.status.NOT_FOUND) reject(err);
+          else resolve();
+        }
+      );
+    });
+  }
+
+  // --- session ------------------------------------------------------------
+
+  getCookies(platform: Platform, domains: string[] = []): Promise<Cookie[]> {
+    return new Promise((resolve, reject) => {
+      this.sessionClient.GetCookies(
+        { platform, domains },
+        this.buildMetadata(),
+        (err: any, response: any) => {
+          if (err) reject(err);
+          else resolve(response.cookies || []);
+        }
+      );
+    });
+  }
+
+  updateCookies(platform: Platform, cookies: Cookie[]): Promise<void> {
+    const wireCookies = cookies.map((c) => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain,
+      path: c.path,
+      expires: c.expires,
+      http_only: c.httpOnly,
+      secure: c.secure,
+    }));
+    return new Promise((resolve, reject) => {
+      this.sessionClient.UpdateCookies(
+        { platform, cookies: wireCookies },
+        this.buildMetadata(),
+        (err: any) => {
+          if (err) reject(err);
+          else resolve();
+        }
+      );
     });
   }
 
   exportNetscape(platform: Platform): Promise<string> {
     return new Promise((resolve, reject) => {
-      this.sessionClient.ExportNetscape({ platform }, (err: any, response: any) => {
-        if (err) reject(err);
-        else resolve(response.content);
-      });
+      this.sessionClient.ExportNetscape(
+        { platform },
+        this.buildMetadata(),
+        (err: any, response: any) => {
+          if (err) reject(err);
+          else resolve(response.content);
+        }
+      );
+    });
+  }
+
+  validateSession(platform: Platform): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      this.sessionClient.ValidateSession(
+        { platform },
+        this.buildMetadata(),
+        (err: any, response: any) => {
+          if (err) reject(err);
+          else resolve(Boolean(response.valid));
+        }
+      );
     });
   }
 
   getConnectionStatus(): Promise<Record<string, boolean>> {
     return new Promise((resolve, reject) => {
-      this.sessionClient.GetConnectionStatus({}, (err: any, response: any) => {
-        if (err) reject(err);
-        else resolve(response.platforms || {});
-      });
+      this.sessionClient.GetConnectionStatus(
+        {},
+        this.buildMetadata(),
+        (err: any, response: any) => {
+          if (err) reject(err);
+          else resolve(response.platforms || {});
+        }
+      );
     });
   }
+
+  // --- credentials --------------------------------------------------------
 
   saveCredentials(
     platform: Platform,
@@ -97,10 +217,53 @@ export class ImauthClient {
   ): Promise<any> {
     return new Promise((resolve, reject) => {
       this.credentialClient.Save(
-        { platform, username, password, twofaMethod: twofaMethod || "" },
+        {
+          platform,
+          username,
+          password,
+          twofa_method: twofaMethod || "",
+        },
+        this.buildMetadata(),
         (err: any, response: any) => {
           if (err) reject(err);
           else resolve(response);
+        }
+      );
+    });
+  }
+
+  getCredentials(platform: Platform): Promise<CredentialInfo | null> {
+    return new Promise((resolve, reject) => {
+      this.credentialClient.Get(
+        { platform },
+        this.buildMetadata(),
+        (err: any, response: any) => {
+          if (err) {
+            if (err.code === grpc.status.NOT_FOUND) resolve(null);
+            else reject(err);
+          } else {
+            resolve({
+              platform: response.platform,
+              username: response.username,
+              hasPassword: response.has_password,
+              twofaMethod: response.twofa_method || "",
+            });
+          }
+        }
+      );
+    });
+  }
+
+  deleteCredentials(platform: Platform): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+      this.credentialClient.Delete(
+        { platform },
+        this.buildMetadata(),
+        (err: any) => {
+          if (err) {
+            if (err.code === grpc.status.NOT_FOUND) resolve(false);
+            else reject(err);
+          } else resolve(true);
         }
       );
     });
