@@ -26,10 +26,10 @@ use imauth_core::{
 };
 use imauth_proto::generated::v1::{
     credential_service_client::CredentialServiceClient,
-    credential_service_server::CredentialServiceServer,
-    session_service_client::SessionServiceClient, session_service_server::SessionServiceServer,
-    Cookie as ProtoCookie, DeleteCredentialRequest, ExportRequest, GetCookiesRequest,
-    GetCredentialRequest, Platform as ProtoPlatform, SaveCredentialRequest, UpdateCookiesRequest,
+    credential_service_server::CredentialServiceServer, session_service_client::SessionServiceClient,
+    session_service_server::SessionServiceServer, Cookie as ProtoCookie, DeleteCredentialRequest,
+    Empty, ExportRequest, GetCookiesRequest, GetCredentialRequest, Platform as ProtoPlatform,
+    SaveCredentialRequest, UpdateCookiesRequest, ValidateRequest,
 };
 use imauth_server::grpc::{CredentialGrpcService, SessionGrpcService};
 
@@ -134,19 +134,22 @@ async fn test_container() -> AppContainer {
     );
     let snapshot: Arc<dyn SnapshotSink> = Arc::new(DummySnapshotSink);
 
+    let active = Arc::new(imauth_core::application::active_session::ActiveSessionRegistry::new());
+
     AppContainer {
         config,
         login: Arc::new(LoginUseCase::new(
             sessions.clone(),
             cookies.clone(),
             browser.clone(),
+            active.clone(),
             drivers.clone(),
             snapshot.clone(),
         )),
         submit_2fa: Arc::new(Submit2FaUseCase::new(
             sessions.clone(),
             cookies.clone(),
-            browser.clone(),
+            active.clone(),
             drivers.clone(),
             snapshot.clone(),
         )),
@@ -170,32 +173,15 @@ async fn start_test_server(container: Arc<AppContainer>, api_key: Option<String>
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    tokio::spawn(async move {
-        let key = api_key.map(std::sync::Arc::new);
-        tonic::transport::Server::builder()
-            .layer(tonic::service::interceptor(
-                move |req: tonic::Request<()>| {
-                    if let Some(ref key) = key {
-                        let provided = req
-                            .metadata()
-                            .get("authorization")
-                            .and_then(|v| v.to_str().ok())
-                            .and_then(|s| s.strip_prefix("Bearer "))
-                            .or_else(|| {
-                                req.metadata()
-                                    .get("x-api-key")
-                                    .and_then(|v| v.to_str().ok())
-                            });
+    // Use the production interceptor + key normalizer (imauth_server::auth)
+    // so the test exercises the same constant-time comparison and whitespace
+    // handling as the binary. Bypassing them in the test was hiding regressions.
+    let key = imauth_server::auth::normalize_api_key(api_key).map(std::sync::Arc::new);
+    let interceptor = imauth_server::auth::auth_interceptor(key);
 
-                        match provided {
-                            Some(k) if k == **key => Ok(req),
-                            _ => Err(tonic::Status::unauthenticated("Invalid or missing API key")),
-                        }
-                    } else {
-                        Ok(req)
-                    }
-                },
-            ))
+    tokio::spawn(async move {
+        tonic::transport::Server::builder()
+            .layer(tonic::service::interceptor(interceptor))
             .add_service(SessionServiceServer::new(session))
             .add_service(CredentialServiceServer::new(credential))
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
@@ -327,6 +313,144 @@ async fn test_auth_rejected_without_api_key() {
     assert!(resp.is_err());
     let err = resp.unwrap_err();
     assert_eq!(err.code(), tonic::Code::Unauthenticated);
+}
+
+#[tokio::test]
+async fn test_validate_session_reports_invalid_when_no_session_cookie() {
+    let container = Arc::new(test_container().await);
+    let addr = start_test_server(container, Some("test-api-key".to_string())).await;
+    let mut client = SessionServiceClient::connect(addr).await.unwrap();
+
+    let resp = client
+        .validate_session(with_key(ValidateRequest {
+            platform: ProtoPlatform::Instagram as i32,
+        }))
+        .await
+        .unwrap();
+    let result = resp.into_inner();
+    assert!(!result.valid);
+    assert_eq!(result.expires_at, 0);
+    assert_eq!(result.session_cookie_name, "sessionid");
+}
+
+#[tokio::test]
+async fn test_validate_session_reports_valid_after_session_cookie_persisted() {
+    let container = Arc::new(test_container().await);
+    let addr = start_test_server(container, Some("test-api-key".to_string())).await;
+    let mut client = SessionServiceClient::connect(addr).await.unwrap();
+
+    client
+        .update_cookies(with_key(UpdateCookiesRequest {
+            platform: ProtoPlatform::Instagram as i32,
+            cookies: vec![ProtoCookie {
+                name: "sessionid".into(),
+                value: "abc123".into(),
+                domain: ".instagram.com".into(),
+                path: "/".into(),
+                expires: 1_700_000_000,
+                http_only: true,
+                secure: true,
+            }],
+        }))
+        .await
+        .unwrap();
+
+    let resp = client
+        .validate_session(with_key(ValidateRequest {
+            platform: ProtoPlatform::Instagram as i32,
+        }))
+        .await
+        .unwrap();
+    let result = resp.into_inner();
+    assert!(result.valid);
+    assert_eq!(result.expires_at, 1_700_000_000);
+}
+
+#[tokio::test]
+async fn test_get_connection_status_includes_all_known_platforms() {
+    let container = Arc::new(test_container().await);
+    let addr = start_test_server(container, Some("test-api-key".to_string())).await;
+    let mut client = SessionServiceClient::connect(addr).await.unwrap();
+
+    let resp = client
+        .get_connection_status(with_key(Empty {}))
+        .await
+        .unwrap();
+    let map = resp.into_inner().platforms;
+    assert_eq!(map.get("instagram"), Some(&false));
+    assert_eq!(map.get("threads"), Some(&false));
+
+    client
+        .update_cookies(with_key(UpdateCookiesRequest {
+            platform: ProtoPlatform::Instagram as i32,
+            cookies: vec![ProtoCookie {
+                name: "sessionid".into(),
+                value: "abc123".into(),
+                domain: ".instagram.com".into(),
+                path: "/".into(),
+                expires: 0,
+                http_only: true,
+                secure: true,
+            }],
+        }))
+        .await
+        .unwrap();
+
+    let resp = client
+        .get_connection_status(with_key(Empty {}))
+        .await
+        .unwrap();
+    let map = resp.into_inner().platforms;
+    assert_eq!(map.get("instagram"), Some(&true));
+    assert_eq!(map.get("threads"), Some(&false));
+}
+
+#[tokio::test]
+async fn test_get_credential_returns_not_found_when_missing() {
+    let container = Arc::new(test_container().await);
+    let addr = start_test_server(container, Some("test-api-key".to_string())).await;
+    let mut client = CredentialServiceClient::connect(addr).await.unwrap();
+
+    let resp = client
+        .get(with_key(GetCredentialRequest {
+            platform: ProtoPlatform::Instagram as i32,
+        }))
+        .await;
+    let err = resp.expect_err("expected NotFound");
+    assert_eq!(err.code(), tonic::Code::NotFound);
+}
+
+#[tokio::test]
+async fn test_invalid_platform_returns_invalid_argument() {
+    let container = Arc::new(test_container().await);
+    let addr = start_test_server(container, Some("test-api-key".to_string())).await;
+    let mut client = SessionServiceClient::connect(addr).await.unwrap();
+
+    let resp = client
+        .validate_session(with_key(ValidateRequest {
+            platform: 0, // unset / unknown platform
+        }))
+        .await;
+    let err = resp.expect_err("expected InvalidArgument");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn test_auth_accepts_x_api_key_alt_header() {
+    let container = Arc::new(test_container().await);
+    let addr = start_test_server(container, Some("test-api-key".to_string())).await;
+    let mut client = SessionServiceClient::connect(addr).await.unwrap();
+
+    let mut req = tonic::Request::new(GetCookiesRequest {
+        platform: ProtoPlatform::Instagram as i32,
+        domains: vec![],
+    });
+    req.metadata_mut()
+        .insert("x-api-key", "test-api-key".parse().expect("valid ascii"));
+
+    // Should succeed: interceptor falls back to x-api-key when Authorization is absent.
+    let resp = client.get_cookies(req).await.unwrap();
+    assert!(resp.into_inner().cookies.is_empty());
 }
 
 #[tokio::test]
