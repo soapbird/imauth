@@ -69,8 +69,8 @@ PROXY_PID=$!
 
 # Forward termination signals
 _cleanup() {
-  kill \"$PROXY_PID\" 2>/dev/null || true
-  kill \"$CHROME_PID\" 2>/dev/null || true
+  kill "$PROXY_PID" 2>/dev/null || true
+  kill "$CHROME_PID" 2>/dev/null || true
   wait
 }
 trap _cleanup TERM INT

@@ -52,6 +52,15 @@ impl LoginUseCase {
             Ok(s) => s,
             Err(e) => {
                 tracing::error!("failed to create session: {e}");
+                let mut failed = Session::new(
+                    uuid::Uuid::new_v4().to_string(),
+                    platform.as_str().to_string(),
+                );
+                failed.transition(
+                    SessionState::Failed,
+                    Some("Failed to create session".into()),
+                );
+                let _ = tx.send(LoginEvent::Final(failed, vec![])).await;
                 return;
             }
         };
@@ -297,6 +306,40 @@ mod tests {
                 assert!(cookies.is_empty());
             }
             _ => panic!("expected Final"),
+        }
+    }
+
+    #[tokio::test]
+    async fn login_session_create_failure_emits_failed_final_event() {
+        let mut sessions = MockSessionRepository::new();
+        sessions
+            .expect_create()
+            .return_once(|_| Err(crate::ImauthError::Browser("db down".into())));
+
+        let mut cookies = MockCookieRepository::new();
+        cookies.expect_save().times(0);
+
+        let browser = MockBrowserSessionFactory::new();
+        let snapshot = MockSnapshotSink::new();
+
+        let mut drivers = HashMap::new();
+        drivers.insert(
+            Platform::Instagram,
+            Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>,
+        );
+        let uc = build_login_use_case(sessions, cookies, browser, drivers, snapshot);
+
+        let (tx, mut rx) = mpsc::channel(8);
+        uc.execute(Platform::Instagram, "u".into(), "p".into(), tx)
+            .await;
+
+        let final_evt = rx.recv().await.expect("client must see a terminal event");
+        match final_evt {
+            LoginEvent::Final(s, cookies) => {
+                assert_eq!(s.state, SessionState::Failed);
+                assert!(cookies.is_empty());
+            }
+            _ => panic!("expected Final, got Started — clients would see empty stream"),
         }
     }
 
