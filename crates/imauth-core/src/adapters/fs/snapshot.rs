@@ -153,4 +153,38 @@ mod tests {
         assert!(!redacted.contains("746736362"));
         assert!(redacted.contains(r#"value="[redacted]""#));
     }
+
+    #[test]
+    fn redacts_single_quoted_input_values() {
+        let html = r#"<input type='text' value='hunter2'>"#;
+        let redacted = redact_html_snapshot(html);
+        assert!(!redacted.contains("hunter2"));
+        assert!(redacted.contains("[redacted]"));
+    }
+
+    #[test]
+    fn redacts_uppercase_input_and_value_attributes() {
+        let html = r#"<INPUT TYPE="password" VALUE="topsecret">"#;
+        let redacted = redact_html_snapshot(html);
+        assert!(!redacted.contains("topsecret"));
+        assert!(redacted.contains("[redacted]"));
+    }
+
+    #[test]
+    fn passes_through_html_with_no_inputs_unchanged() {
+        let html = r#"<div><p>Hello</p><a href="/login">Sign in</a></div>"#;
+        let redacted = redact_html_snapshot(html);
+        assert_eq!(redacted, html);
+    }
+
+    #[test]
+    fn leaves_non_value_attributes_on_inputs_untouched() {
+        let html = r#"<input type="text" name="username" placeholder="username">"#;
+        let redacted = redact_html_snapshot(html);
+        // No `value="..."` attribute on this input, so nothing to redact.
+        assert!(!redacted.contains("[redacted]"));
+        // Other attributes preserved.
+        assert!(redacted.contains(r#"name="username""#));
+        assert!(redacted.contains(r#"placeholder="username""#));
+    }
 }

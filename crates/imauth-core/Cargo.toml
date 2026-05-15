@@ -1,6 +1,6 @@
 [package]
 name = "imauth-core"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
@@ -25,3 +25,4 @@ async-trait = { workspace = true }
 tokio-test = "0.4"
 mockall = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "test-util"] }
+tempfile = "3"

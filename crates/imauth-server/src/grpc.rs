@@ -414,3 +414,174 @@ impl CredentialService for CredentialGrpcService {
         }))
     }
 }
+
+// ---- unit tests for converters ----------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use imauth_core::domain::session::Session as DomainSession;
+
+    #[test]
+    fn map_auth_err_translates_not_found_to_grpc_not_found() {
+        let status = map_auth_err(imauth_core::ImauthError::NotFound("nope".into()));
+        assert_eq!(status.code(), tonic::Code::NotFound);
+        assert_eq!(status.message(), "nope");
+    }
+
+    #[test]
+    fn map_auth_err_translates_platform_to_invalid_argument() {
+        let status = map_auth_err(imauth_core::ImauthError::Platform("bad".into()));
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+        assert_eq!(status.message(), "bad");
+    }
+
+    #[test]
+    fn map_auth_err_redacts_other_errors_to_internal() {
+        // We don't want to leak DB error details over the wire.
+        let status = map_auth_err(imauth_core::ImauthError::Database(
+            "select foo from bar: detail".into(),
+        ));
+        assert_eq!(status.code(), tonic::Code::Internal);
+        assert_eq!(status.message(), "Internal server error");
+        assert!(!status.message().contains("select"));
+        assert!(!status.message().contains("detail"));
+    }
+
+    #[test]
+    fn map_auth_err_redacts_encryption_errors() {
+        let status = map_auth_err(imauth_core::ImauthError::Encryption(
+            "decrypt failed: aad".into(),
+        ));
+        assert_eq!(status.code(), tonic::Code::Internal);
+        assert!(!status.message().contains("decrypt"));
+        assert!(!status.message().contains("aad"));
+    }
+
+    #[test]
+    fn platform_from_proto_known_values() {
+        assert!(matches!(platform_from_proto(1), Some(Platform::Instagram)));
+        assert!(matches!(platform_from_proto(2), Some(Platform::Threads)));
+    }
+
+    #[test]
+    fn platform_from_proto_unknown_returns_none() {
+        assert!(platform_from_proto(0).is_none());
+        assert!(platform_from_proto(99).is_none());
+        assert!(platform_from_proto(-1).is_none());
+    }
+
+    #[test]
+    fn session_state_to_proto_covers_every_variant() {
+        let pairs = [
+            (SessionState::Idle, ProtoAuthStatus::Idle),
+            (SessionState::Loading, ProtoAuthStatus::Loading),
+            (SessionState::Authenticating, ProtoAuthStatus::Authenticating),
+            (SessionState::NeedsCreds, ProtoAuthStatus::NeedsCreds),
+            (SessionState::Needs2Fa, ProtoAuthStatus::Needs2fa),
+            (SessionState::NeedsCaptcha, ProtoAuthStatus::NeedsCaptcha),
+            (SessionState::Connected, ProtoAuthStatus::Connected),
+            (SessionState::Failed, ProtoAuthStatus::Failed),
+        ];
+        for (input, expected) in pairs {
+            assert_eq!(session_state_to_proto(&input) as i32, expected as i32);
+        }
+    }
+
+    fn sample_cookie() -> Cookie {
+        Cookie {
+            name: "sessionid".to_string(),
+            value: "abc123".to_string(),
+            domain: ".instagram.com".to_string(),
+            path: "/".to_string(),
+            expires: Some(chrono::Utc.timestamp_opt(1700000000, 0).unwrap()),
+            http_only: true,
+            secure: true,
+        }
+    }
+
+    #[test]
+    fn cookie_to_proto_preserves_all_fields() {
+        let c = sample_cookie();
+        let p = cookie_to_proto(&c);
+        assert_eq!(p.name, "sessionid");
+        assert_eq!(p.value, "abc123");
+        assert_eq!(p.domain, ".instagram.com");
+        assert_eq!(p.path, "/");
+        assert_eq!(p.expires, 1700000000);
+        assert!(p.http_only);
+        assert!(p.secure);
+    }
+
+    #[test]
+    fn cookie_to_proto_handles_missing_expires_as_zero() {
+        let mut c = sample_cookie();
+        c.expires = None;
+        let p = cookie_to_proto(&c);
+        assert_eq!(p.expires, 0);
+    }
+
+    #[test]
+    fn proto_cookie_from_round_trips() {
+        let original = sample_cookie();
+        let p = cookie_to_proto(&original);
+        let back = proto_cookie_from(&p);
+        assert_eq!(back.name, original.name);
+        assert_eq!(back.value, original.value);
+        assert_eq!(back.domain, original.domain);
+        assert_eq!(back.path, original.path);
+        assert_eq!(back.http_only, original.http_only);
+        assert_eq!(back.secure, original.secure);
+        assert_eq!(
+            back.expires.map(|t| t.timestamp()),
+            original.expires.map(|t| t.timestamp())
+        );
+    }
+
+    #[test]
+    fn proto_cookie_from_zero_expires_becomes_some_epoch() {
+        // 0 maps to Some(epoch) via chrono::from_timestamp(0, 0), not None.
+        let p = ProtoCookie {
+            name: "n".into(),
+            value: "v".into(),
+            domain: "d".into(),
+            path: "/".into(),
+            expires: 0,
+            http_only: false,
+            secure: false,
+        };
+        let back = proto_cookie_from(&p);
+        assert!(back.expires.is_some());
+        assert_eq!(back.expires.unwrap().timestamp(), 0);
+    }
+
+    #[test]
+    fn auth_event_from_includes_session_metadata() {
+        let mut sess = DomainSession::new("sess-1".into(), "instagram".into());
+        sess.state = SessionState::NeedsCreds;
+        sess.message = Some("provide credentials".into());
+        sess.requires_input = true;
+        sess.input_type = Some("text".into());
+
+        let evt = auth_event_from(&sess);
+        assert_eq!(evt.session_id, "sess-1");
+        assert_eq!(evt.status, ProtoAuthStatus::NeedsCreds as i32);
+        assert_eq!(evt.message, "provide credentials");
+        assert!(evt.requires_input);
+        assert_eq!(evt.input_type, "text");
+        // Cookies and screenshot are filled in by the caller, not the converter.
+        assert!(evt.cookies.is_empty());
+        assert!(evt.screenshot.is_empty());
+    }
+
+    #[test]
+    fn auth_event_from_defaults_missing_optional_fields_to_empty_strings() {
+        let sess = DomainSession::new("sess-2".into(), "threads".into());
+        let evt = auth_event_from(&sess);
+        assert_eq!(evt.session_id, "sess-2");
+        assert_eq!(evt.message, "");
+        assert_eq!(evt.input_type, "");
+        assert!(!evt.requires_input);
+    }
+}
