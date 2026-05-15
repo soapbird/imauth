@@ -30,6 +30,10 @@ message CookieList {
 }
 
 message UpdateCookiesRequest {
+  // Field tag 1 was previously assigned to a `session_id` field that has been
+  // removed. Reserve it so future schema changes don't silently reuse the tag
+  // and mis-parse against any older clients still in the wild.
+  reserved 1;
   Platform platform = 2;
   repeated Cookie cookies = 3;
 }
