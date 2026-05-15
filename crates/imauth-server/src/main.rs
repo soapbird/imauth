@@ -6,47 +6,19 @@ use imauth_proto::generated::v1::{
     auth_service_server::AuthServiceServer, credential_service_server::CredentialServiceServer,
     session_service_server::SessionServiceServer,
 };
+use imauth_server::auth::{auth_interceptor, normalize_api_key};
 use imauth_server::cli::{Cli, Commands};
 use imauth_server::grpc::{AuthGrpcService, CredentialGrpcService, SessionGrpcService};
 use std::sync::Arc;
-use subtle::ConstantTimeEq;
 use tonic::transport::Server;
-
-/// Returns the configured API key, or `None` when it is missing, empty, or
-/// whitespace-only. An empty `IMAUTH_API_KEY` must NOT enable auth — otherwise
-/// callers could authenticate with `Authorization: Bearer ` (empty token).
-fn normalize_api_key(raw: Option<String>) -> Option<String> {
-    raw.map(|k| k.trim().to_string()).filter(|k| !k.is_empty())
-}
-
-fn auth_interceptor(
-    api_key: Option<std::sync::Arc<String>>,
-) -> impl Fn(tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> + Clone {
-    move |req: tonic::Request<()>| {
-        if let Some(ref key) = api_key {
-            let provided = req
-                .metadata()
-                .get("authorization")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.strip_prefix("Bearer "))
-                .or_else(|| {
-                    req.metadata()
-                        .get("x-api-key")
-                        .and_then(|v| v.to_str().ok())
-                });
-
-            match provided {
-                Some(k) if bool::from(k.as_bytes().ct_eq(key.as_bytes())) => Ok(req),
-                _ => Err(tonic::Status::unauthenticated("Invalid or missing API key")),
-            }
-        } else {
-            Ok(req)
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load .env before tracing init so IMAUTH_API_KEY / IMAUTH_ENCRYPTION_KEY
+    // set there reach Cli::parse and the encryption-key check. Matches the CLI
+    // (imauth-cli/src/main.rs) so operators see identical .env behavior on both
+    // binaries. Quiet failure when no .env is present is intentional.
+    dotenvy::dotenv().ok();
     tracing_subscriber::fmt::init();
     let cli = Cli::parse();
 
@@ -74,44 +46,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let credential_service =
                 CredentialServiceServer::new(CredentialGrpcService::new(container.clone()));
 
-            let key = normalize_api_key(api_key).map(std::sync::Arc::new);
+            let key = normalize_api_key(api_key).map(Arc::new);
+
+            // Wait for SIGTERM/SIGINT and finish in-flight streams instead of
+            // dropping the runtime under them. Prevents leaked browser-pool
+            // permits when the orchestrator restarts the container.
+            let shutdown = async {
+                tokio::signal::ctrl_c()
+                    .await
+                    .expect("install ctrl_c handler");
+                tracing::info!("shutdown signal received, draining streams");
+            };
+
             Server::builder()
                 .layer(tonic::service::interceptor(auth_interceptor(key)))
                 .add_service(auth_service)
                 .add_service(session_service)
                 .add_service(credential_service)
-                .serve(addr)
+                .serve_with_shutdown(addr, shutdown)
                 .await?;
         }
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::normalize_api_key;
-
-    #[test]
-    fn empty_key_is_treated_as_none() {
-        assert!(normalize_api_key(Some(String::new())).is_none());
-    }
-
-    #[test]
-    fn whitespace_only_key_is_treated_as_none() {
-        assert!(normalize_api_key(Some("   \t\n".into())).is_none());
-    }
-
-    #[test]
-    fn unset_key_is_none() {
-        assert!(normalize_api_key(None).is_none());
-    }
-
-    #[test]
-    fn real_key_is_preserved_after_trim() {
-        assert_eq!(
-            normalize_api_key(Some("  secret-key  ".into())).as_deref(),
-            Some("secret-key")
-        );
-    }
 }

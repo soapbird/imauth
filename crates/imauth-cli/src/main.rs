@@ -132,6 +132,7 @@ fn normalize_2fa_code(raw: &str) -> String {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenvy::dotenv().ok();
     tracing_subscriber::fmt::init();
     let cli = Cli::parse();
 
@@ -319,7 +320,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_2fa_code;
+    use super::{platform_to_proto, normalize_2fa_code, with_api_key};
 
     #[test]
     fn normalize_2fa_code_keeps_six_digits_including_leading_zero() {
@@ -334,5 +335,40 @@ mod tests {
     #[test]
     fn normalize_2fa_code_strips_separators() {
         assert_eq!(normalize_2fa_code("123 456"), "123456");
+    }
+
+    #[test]
+    fn platform_to_proto_accepts_known_platforms_case_insensitive() {
+        assert_eq!(platform_to_proto("instagram").unwrap(), 1);
+        assert_eq!(platform_to_proto("Instagram").unwrap(), 1);
+        assert_eq!(platform_to_proto("THREADS").unwrap(), 2);
+    }
+
+    #[test]
+    fn platform_to_proto_rejects_unknown_platform_with_helpful_message() {
+        let err = platform_to_proto("facebook").unwrap_err();
+        assert!(err.contains("facebook"));
+        assert!(err.contains("instagram"));
+        assert!(err.contains("threads"));
+    }
+
+    #[test]
+    fn with_api_key_does_not_set_authorization_when_key_is_none() {
+        let req: tonic::Request<()> = tonic::Request::new(());
+        let req = with_api_key(req, &None);
+        assert!(req.metadata().get("authorization").is_none());
+    }
+
+    #[test]
+    fn with_api_key_sets_bearer_authorization_when_key_present() {
+        let req: tonic::Request<()> = tonic::Request::new(());
+        let req = with_api_key(req, &Some("secret-key".to_string()));
+        let val = req
+            .metadata()
+            .get("authorization")
+            .expect("authorization header set")
+            .to_str()
+            .unwrap();
+        assert_eq!(val, "Bearer secret-key");
     }
 }

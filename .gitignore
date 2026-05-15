@@ -35,3 +35,6 @@ sdk/python/uv.lock
 sdk/typescript/node_modules/
 sdk/typescript/dist/
 sdk/typescript/*.log
+
+# Secrets
+.env

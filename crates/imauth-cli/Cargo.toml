@@ -1,6 +1,6 @@
 [package]
 name = "imauth-cli"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [[bin]]
@@ -8,7 +8,6 @@ name = "imauth"
 path = "src/main.rs"
 
 [dependencies]
-imauth-core = { path = "../imauth-core" }
 imauth-proto = { path = "../imauth-proto" }
 tokio = { workspace = true }
 tonic = { workspace = true }
@@ -16,3 +15,4 @@ clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 serde_json = { workspace = true }
+dotenvy = { workspace = true }
