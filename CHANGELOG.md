@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0.0] - 2026-05-15
+
+### Added
+- API key authentication for gRPC services via `--api-key` flag or `IMAUTH_API_KEY` env var on both server and CLI; requests authenticate with `Authorization: Bearer <key>` or `x-api-key` metadata
+- Tests covering API key rejection for missing/wrong keys and acceptance for valid keys
+
+### Changed
+- **Breaking:** Encryption key is now required. Server refuses to start without `IMAUTH_ENCRYPTION_KEY` (or `[security].encryption_key`); the previous fallback to a process-lifetime random key has been removed
+- gRPC errors no longer leak internal error detail to clients — internal errors are logged server-side and returned as generic "Internal server error"
+- Chrome CDP CORS restricted from `*` to `http://localhost:50051`; the public CDP port (9222) is no longer exposed by docker-compose
+- `/data` directory in container hardened with `chmod 700`
+
+### Fixed
+- Handle transient page context errors in Chrome driver and switch to CDP-native typing for more reliable input
+
 ## [0.1.0.0] - 2026-05-12
 
 ### Added
