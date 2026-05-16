@@ -4,12 +4,6 @@ Tracked follow-up work, grouped by component then priority.
 
 ## CI/CD
 
-### Add GitHub Actions release pipeline
-**Priority:** P1
-**Origin:** /ship v0.3.0.0 — D1 (release workflow chosen but deferred to a focused PR)
-**Why:** Repo currently has no `.github/workflows/`. After v0.3.0.0 ships, users on `main` can't pull a published binary or Docker image; they have to `cargo install` from source. A release workflow on tag push (build matrix: linux-amd64 / linux-arm64 / macos / windows) + Docker image publish closes the loop.
-**Acceptance:** `.github/workflows/release.yml` builds and uploads release artifacts when a tag matching `v*` is pushed; `docker push ghcr.io/<org>/imauth:vX.Y.Z` succeeds; CHANGELOG bump triggers the workflow.
-
 ### CI smoke for docker-compose
 **Priority:** P2
 **Origin:** /ship v0.3.0.0 — Red Team finding (image pin)
@@ -73,3 +67,10 @@ Tracked follow-up work, grouped by component then priority.
 **Priority:** P4
 **Origin:** /ship v0.3.0.0 — maintainability specialist
 **Why:** After clear-step failure, `fill_input` returns the same "Could not focus input X" error as the initial focus failure. Operators chase the wrong cause.
+
+## Completed
+
+### Add GitHub Actions release pipeline
+**Completed:** v0.3.0.0 (2026-05-16)
+**Origin:** /ship v0.3.0.0 — D1
+Shipped as `.github/workflows/release.yml` (multi-arch Rust build matrix on tag `v*` push) alongside `.github/workflows/test.yml` for PR CI.
