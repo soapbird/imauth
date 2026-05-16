@@ -1,8 +1,6 @@
-#![allow(dead_code)]
-
-use crate::Result;
 use crate::domain::session::{Session, SessionState};
 use crate::ports::repository::SessionRepository;
+use crate::Result;
 use async_trait::async_trait;
 use chrono::DateTime;
 use sqlx::SqlitePool;
@@ -66,7 +64,6 @@ impl SessionRepository for SqliteSessionRepository {
                     message,
                     requires_input: requires_input != 0,
                     input_type,
-                    cookies: Vec::new(),
                     created_at: DateTime::from_timestamp(created_at, 0).unwrap_or_default(),
                     updated_at: DateTime::from_timestamp(updated_at, 0).unwrap_or_default(),
                 }

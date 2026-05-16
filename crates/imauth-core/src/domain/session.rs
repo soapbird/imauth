@@ -59,7 +59,6 @@ pub struct Session {
     pub message: Option<String>,
     pub requires_input: bool,
     pub input_type: Option<String>,
-    pub cookies: Vec<Cookie>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -85,7 +84,6 @@ impl Session {
             message: None,
             requires_input: false,
             input_type: None,
-            cookies: Vec::new(),
             created_at: now,
             updated_at: now,
         }
@@ -122,7 +120,6 @@ mod tests {
         assert_eq!(s.state, SessionState::Idle);
         assert!(!s.requires_input);
         assert!(s.input_type.is_none());
-        assert!(s.cookies.is_empty());
         assert_eq!(s.created_at, s.updated_at);
     }
 

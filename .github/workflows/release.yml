@@ -1,0 +1,136 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build-rust:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive_ext: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive_ext: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive_ext: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive_ext: tar.gz
+    steps:
+      - uses: actions/checkout@v4
+      - name: install protoc (linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: install protoc (mac)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: install cross-linker (aarch64-linux)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: build release binaries
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target ${{ matrix.target }} -p imauth-server -p imauth-cli
+      - name: package
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/imauth-server dist/
+          cp target/${{ matrix.target }}/release/imauth dist/
+          tar -czf imauth-${{ github.ref_name }}-${{ matrix.target }}.tar.gz -C dist .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: imauth-${{ matrix.target }}
+          path: imauth-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+
+  publish-docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:latest
+
+  publish-python-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install build deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine grpcio-tools
+      - name: regenerate proto stubs
+        working-directory: sdk/python
+        run: |
+          python -m grpc_tools.protoc \
+            -Iproto=../../proto \
+            --python_out=imauth \
+            --grpc_python_out=imauth \
+            ../../proto/imauth/v1/*.proto
+      - name: build wheel
+        working-directory: sdk/python
+        run: python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-sdk
+          path: sdk/python/dist/*
+
+  publish-ts-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - working-directory: sdk/typescript
+        run: |
+          npm install
+          npm test
+          npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ts-sdk
+          path: sdk/typescript/dist/
+
+  github-release:
+    needs: [build-rust]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*/*.tar.gz
+          generate_release_notes: true

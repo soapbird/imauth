@@ -1,6 +1,6 @@
 [package]
 name = "imauth-server"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 
 [[bin]]
@@ -9,16 +9,16 @@ path = "src/main.rs"
 
 [dependencies]
 imauth-core = { path = "../imauth-core" }
+imauth-proto = { path = "../imauth-proto" }
 tokio = { workspace = true }
 tonic = { workspace = true }
-prost = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 futures = { workspace = true }
 chrono = { workspace = true }
+async-trait = { workspace = true }
 tokio-stream = "0.1"
-
-[build-dependencies]
-tonic-build = { workspace = true }
+subtle = { workspace = true }
+dotenvy = { workspace = true }

@@ -1,0 +1,36 @@
+import { ImauthClient, Platform, AuthStatus } from '../src';
+
+describe('ImauthClient', () => {
+  let client: ImauthClient;
+
+  beforeEach(() => {
+    client = new ImauthClient('localhost:50051');
+  });
+
+  afterEach(() => {
+    client.close();
+  });
+
+  it('should create a client with default address', () => {
+    const defaultClient = new ImauthClient();
+    expect(defaultClient).toBeInstanceOf(ImauthClient);
+    defaultClient.close();
+  });
+
+  it('should create a client with custom address', () => {
+    expect(client).toBeInstanceOf(ImauthClient);
+  });
+
+  it('should expose Platform enum values', () => {
+    expect(Platform.UNSPECIFIED).toBe(0);
+    expect(Platform.INSTAGRAM).toBe(1);
+    expect(Platform.THREADS).toBe(2);
+  });
+
+  it('should expose AuthStatus enum values', () => {
+    expect(AuthStatus.UNSPECIFIED).toBe(0);
+    expect(AuthStatus.IDLE).toBe(1);
+    expect(AuthStatus.CONNECTED).toBe(7);
+    expect(AuthStatus.FAILED).toBe(8);
+  });
+});

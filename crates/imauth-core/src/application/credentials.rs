@@ -1,6 +1,6 @@
-use crate::Result;
 use crate::domain::{Credential, Platform};
 use crate::ports::repository::CredentialRepository;
+use crate::Result;
 use std::sync::Arc;
 
 pub struct SaveCredentialUseCase {

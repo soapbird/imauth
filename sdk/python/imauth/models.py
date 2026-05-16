@@ -29,6 +29,7 @@ class Cookie(BaseModel):
 
 class AuthEvent(BaseModel):
     status: AuthStatus
+    session_id: str = ""
     message: str = ""
     requires_input: bool = False
     input_type: str = ""

@@ -21,7 +21,7 @@ clean:
 	cargo clean
 
 proto:
-	cd crates/imauth-server && cargo build
+	cd crates/imauth-proto && cargo build
 
 docker:
 	docker build -t imauth:latest .

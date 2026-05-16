@@ -20,9 +20,6 @@ pub enum ImauthError {
     #[error("Platform error: {0}")]
     Platform(String),
 
-    #[error("Queue error: {0}")]
-    Queue(String),
-
     #[error("Not found: {0}")]
     NotFound(String),
 }

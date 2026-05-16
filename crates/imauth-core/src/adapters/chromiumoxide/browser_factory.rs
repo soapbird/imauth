@@ -1,7 +1,7 @@
 use crate::adapters::chromiumoxide::page_driver::ChromiumOxidePageDriver;
-use crate::Result;
 use crate::ports::browser::{BrowserSession, BrowserSessionFactory, PageDriver};
 use crate::ImauthError;
+use crate::Result;
 use async_trait::async_trait;
 use chromiumoxide::Browser;
 use futures::StreamExt;
@@ -79,8 +79,14 @@ pub struct ChromiumOxideBrowserSession {
 }
 
 impl ChromiumOxideBrowserSession {
-    fn inner(&self) -> &Browser {
-        self.browser.as_ref().expect("browser only None after drop")
+    /// Returns the wrapped browser handle. Result-returning so that a future
+    /// code path that takes the browser out via `take()` outside of `Drop`
+    /// surfaces a typed error instead of panicking inside an async task and
+    /// leaking the pool permit forever.
+    fn inner(&self) -> Result<&Browser> {
+        self.browser
+            .as_ref()
+            .ok_or_else(|| ImauthError::Browser("browser session already released".into()))
     }
 }
 
@@ -88,7 +94,7 @@ impl ChromiumOxideBrowserSession {
 impl BrowserSession for ChromiumOxideBrowserSession {
     async fn new_page(&self) -> Result<Box<dyn PageDriver>> {
         let page = self
-            .inner()
+            .inner()?
             .new_page("about:blank")
             .await
             .map_err(|e| ImauthError::Browser(format!("Failed to create page: {e}")))?;
@@ -97,7 +103,7 @@ impl BrowserSession for ChromiumOxideBrowserSession {
 
     async fn existing_pages(&self) -> Result<Vec<Box<dyn PageDriver>>> {
         let pages = self
-            .inner()
+            .inner()?
             .pages()
             .await
             .map_err(|e| ImauthError::Browser(format!("Failed to list pages: {e}")))?;

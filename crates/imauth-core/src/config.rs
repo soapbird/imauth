@@ -8,14 +8,6 @@ pub struct ServerConfig {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct NatsConfig {
-    #[serde(default = "default_nats_url")]
-    pub url: String,
-    #[serde(default = "default_stream_name")]
-    pub stream_name: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BrowserConfig {
     #[serde(default = "default_cdp_url")]
     pub cdp_url: String,
@@ -49,8 +41,6 @@ pub struct Config {
     #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
-    pub nats: NatsConfig,
-    #[serde(default)]
     pub browser: BrowserConfig,
     #[serde(default)]
     pub storage: StorageConfig,
@@ -62,14 +52,6 @@ pub struct Config {
 
 fn default_grpc_addr() -> String {
     "0.0.0.0:50051".to_string()
-}
-
-fn default_nats_url() -> String {
-    "nats://localhost:4222".to_string()
-}
-
-fn default_stream_name() -> String {
-    "imauth".to_string()
 }
 
 fn default_cdp_url() -> String {
@@ -116,10 +98,6 @@ impl Default for Config {
             server: ServerConfig {
                 grpc_addr: default_grpc_addr(),
             },
-            nats: NatsConfig {
-                url: default_nats_url(),
-                stream_name: default_stream_name(),
-            },
             browser: BrowserConfig {
                 cdp_url: default_cdp_url(),
                 max_pool_size: default_max_pool_size(),
@@ -159,9 +137,6 @@ impl Config {
         if let Ok(addr) = std::env::var("IMAUTH_GRPC_ADDR") {
             self.server.grpc_addr = addr;
         }
-        if let Ok(url) = std::env::var("IMAUTH_NATS_URL") {
-            self.nats.url = url;
-        }
         if let Ok(url) = std::env::var("IMAUTH_CDP_URL") {
             self.browser.cdp_url = url;
         }
@@ -194,6 +169,12 @@ impl Config {
             let toml = toml::to_string_pretty(&Self::default()).map_err(|e| {
                 crate::ImauthError::Config(format!("Failed to serialize config: {e}"))
             })?;
+            let toml = toml.replace(
+                "encryption_key = \"\"",
+                "# REQUIRED: 32-byte base64-encoded AES-256 key.\n\
+                 # Generate with: openssl rand -base64 32\n\
+                 encryption_key = \"\"",
+            );
             match std::fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -220,10 +201,6 @@ impl Config {
 
     pub fn grpc_addr(&self) -> &str {
         &self.server.grpc_addr
-    }
-
-    pub fn nats_url(&self) -> &str {
-        &self.nats.url
     }
 
     pub fn cdp_url(&self) -> &str {
@@ -260,5 +237,211 @@ impl Config {
 
     pub fn refresh_retry_max(&self) -> u32 {
         self.refresh.retry_max
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    // Env vars are process-global, and `apply_env_overrides` reads several at
+    // once. Serialize tests that touch them so cargo's multi-threaded runner
+    // doesn't cause flakes. We accept poisoned locks because a panicking test
+    // shouldn't poison every later test in the same module.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+        match ENV_LOCK.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        }
+    }
+
+    fn clear_env() {
+        for k in [
+            "IMAUTH_GRPC_ADDR",
+            "IMAUTH_CDP_URL",
+            "IMAUTH_ENCRYPTION_KEY",
+            "IMAUTH_DATA_DIR",
+        ] {
+            std::env::remove_var(k);
+        }
+    }
+
+    #[test]
+    fn config_default_has_expected_values() {
+        let cfg = Config::default();
+        assert_eq!(cfg.grpc_addr(), "0.0.0.0:50051");
+        assert_eq!(cfg.cdp_url(), "http://localhost:9222");
+        assert_eq!(cfg.max_pool_size(), 3);
+        assert_eq!(cfg.page_timeout_secs(), 30);
+        assert!(cfg.encryption_key().is_none());
+        assert_eq!(cfg.refresh_interval_secs(), 3600);
+        assert_eq!(cfg.refresh_retry_max(), 3);
+    }
+
+    #[test]
+    fn config_derived_paths_join_correctly() {
+        let mut cfg = Config::default();
+        cfg.storage.data_dir = PathBuf::from("/tmp/imauth-test");
+        assert_eq!(cfg.db_path(), PathBuf::from("/tmp/imauth-test/imauth.db"));
+        assert_eq!(
+            cfg.cookies_dir(),
+            PathBuf::from("/tmp/imauth-test/cookies")
+        );
+        assert_eq!(
+            cfg.snapshot_dir(),
+            PathBuf::from("/tmp/imauth-test/snapshots")
+        );
+    }
+
+    #[test]
+    fn from_file_with_missing_path_returns_defaults() {
+        let _guard = lock_env();
+        clear_env();
+
+        let missing = std::env::temp_dir().join("imauth-does-not-exist-xyz.toml");
+        let _ = std::fs::remove_file(&missing);
+
+        let cfg = Config::from_file(&missing).unwrap();
+        assert_eq!(cfg.grpc_addr(), "0.0.0.0:50051");
+        assert_eq!(cfg.cdp_url(), "http://localhost:9222");
+    }
+
+    #[test]
+    fn from_file_parses_partial_toml_and_fills_defaults() {
+        let _guard = lock_env();
+        clear_env();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[server]
+grpc_addr = "127.0.0.1:9999"
+
+[browser]
+max_pool_size = 7
+"#,
+        )
+        .unwrap();
+
+        let cfg = Config::from_file(&path).unwrap();
+        assert_eq!(cfg.grpc_addr(), "127.0.0.1:9999");
+        assert_eq!(cfg.max_pool_size(), 7);
+        // Unset fields within a present section fall back to per-field defaults.
+        assert_eq!(cfg.cdp_url(), "http://localhost:9222");
+        assert_eq!(cfg.page_timeout_secs(), 30);
+    }
+
+    #[test]
+    fn from_file_reports_parse_error_as_config_error() {
+        let _guard = lock_env();
+        clear_env();
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bad.toml");
+        std::fs::write(&path, "this is = not = valid = toml = at all").unwrap();
+
+        let err = Config::from_file(&path).unwrap_err();
+        match err {
+            crate::ImauthError::Config(msg) => {
+                assert!(
+                    msg.contains("Failed to parse"),
+                    "expected parse error, got: {msg}"
+                );
+            }
+            other => panic!("expected Config error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn env_overrides_apply_after_file_load() {
+        let _guard = lock_env();
+        clear_env();
+
+        std::env::set_var("IMAUTH_GRPC_ADDR", "10.0.0.1:7000");
+        std::env::set_var("IMAUTH_CDP_URL", "http://chrome:9223");
+        std::env::set_var("IMAUTH_ENCRYPTION_KEY", "test-key-from-env");
+        std::env::set_var("IMAUTH_DATA_DIR", "/var/lib/imauth-test");
+
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.toml");
+        let cfg = Config::from_file(&missing).unwrap();
+
+        assert_eq!(cfg.grpc_addr(), "10.0.0.1:7000");
+        assert_eq!(cfg.cdp_url(), "http://chrome:9223");
+        assert_eq!(cfg.encryption_key(), Some("test-key-from-env"));
+        assert_eq!(
+            cfg.storage.data_dir,
+            PathBuf::from("/var/lib/imauth-test")
+        );
+
+        clear_env();
+    }
+
+    #[test]
+    fn empty_encryption_key_env_is_normalized_to_none() {
+        let _guard = lock_env();
+        clear_env();
+
+        std::env::set_var("IMAUTH_ENCRYPTION_KEY", "");
+
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.toml");
+        let cfg = Config::from_file(&missing).unwrap();
+
+        // Empty string env var is treated as "not set".
+        assert!(cfg.encryption_key().is_none());
+
+        clear_env();
+    }
+
+    #[test]
+    fn tilde_in_data_dir_is_expanded_to_home() {
+        let _guard = lock_env();
+        clear_env();
+
+        std::env::set_var("IMAUTH_DATA_DIR", "~/imauth-tilde-test");
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.toml");
+        let cfg = Config::from_file(&missing).unwrap();
+
+        let expanded = cfg.storage.data_dir;
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(expanded, home.join("imauth-tilde-test"));
+        } else {
+            // No home dir available — fall through to the original path.
+            assert_eq!(expanded, PathBuf::from("~/imauth-tilde-test"));
+        }
+
+        clear_env();
+    }
+
+    #[test]
+    fn absolute_data_dir_is_left_alone() {
+        let _guard = lock_env();
+        clear_env();
+
+        std::env::set_var("IMAUTH_DATA_DIR", "/srv/imauth-abs");
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.toml");
+        let cfg = Config::from_file(&missing).unwrap();
+        assert_eq!(cfg.storage.data_dir, PathBuf::from("/srv/imauth-abs"));
+
+        clear_env();
+    }
+
+    #[test]
+    fn config_round_trips_through_toml() {
+        let original = Config::default();
+        let serialized = toml::to_string_pretty(&original).unwrap();
+        let parsed: Config = toml::from_str(&serialized).unwrap();
+        assert_eq!(parsed.grpc_addr(), original.grpc_addr());
+        assert_eq!(parsed.cdp_url(), original.cdp_url());
+        assert_eq!(parsed.max_pool_size(), original.max_pool_size());
+        assert_eq!(parsed.refresh_interval_secs(), original.refresh_interval_secs());
     }
 }

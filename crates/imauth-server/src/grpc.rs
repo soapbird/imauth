@@ -1,7 +1,12 @@
 // tonic::Status is intentionally large; this is a known clippy lint we accept.
 #![allow(clippy::result_large_err)]
 
-use crate::generated::v1::{
+use futures::Stream;
+use imauth_core::application::login::LoginEvent;
+use imauth_core::domain::session::{Cookie, Session, SessionState};
+use imauth_core::domain::Platform;
+use imauth_core::AppContainer;
+use imauth_proto::generated::v1::{
     auth_service_server::AuthService, credential_service_server::CredentialService,
     session_service_server::SessionService, AuthEvent, AuthResponse, AuthStatus as ProtoAuthStatus,
     AuthStatusResponse, CancelRequest, ConnectionStatusMap, Cookie as ProtoCookie, CookieList,
@@ -10,11 +15,6 @@ use crate::generated::v1::{
     StatusRequest, Submit2FaRequest, SubmitCaptchaRequest, UpdateCookiesRequest, ValidateRequest,
     ValidationResult,
 };
-use futures::Stream;
-use imauth_core::application::login::LoginEvent;
-use imauth_core::domain::session::{Cookie, Session, SessionState};
-use imauth_core::domain::Platform;
-use imauth_core::AppContainer;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -22,6 +22,18 @@ use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status};
 
 // ---- proto ↔ domain converters (server-crate concerns) ------------------------
+
+fn map_auth_err(err: imauth_core::ImauthError) -> tonic::Status {
+    use imauth_core::ImauthError;
+    match err {
+        ImauthError::NotFound(m) => tonic::Status::not_found(m),
+        ImauthError::Platform(m) => tonic::Status::invalid_argument(m),
+        other => {
+            tracing::error!(error = %other, "Internal error mapped to gRPC status");
+            tonic::Status::internal("Internal server error")
+        }
+    }
+}
 
 fn platform_from_proto(p: i32) -> Option<Platform> {
     match p {
@@ -75,7 +87,7 @@ fn auth_event_from(session: &Session) -> AuthEvent {
         message: session.message.clone().unwrap_or_default(),
         requires_input: session.requires_input,
         input_type: session.input_type.clone().unwrap_or_default(),
-        cookies: session.cookies.iter().map(cookie_to_proto).collect(),
+        cookies: vec![],
         screenshot: vec![],
     }
 }
@@ -115,10 +127,13 @@ impl AuthService for AuthGrpcService {
         });
 
         let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|event| {
-            let session = match event {
-                LoginEvent::Started(s) | LoginEvent::Final(s) => s,
+            let (session, cookies) = match event {
+                LoginEvent::Started(s) => (s, vec![]),
+                LoginEvent::Final(s, c) => (s, c),
             };
-            Ok::<AuthEvent, Status>(auth_event_from(&session))
+            let mut evt = auth_event_from(&session);
+            evt.cookies = cookies.iter().map(cookie_to_proto).collect();
+            Ok::<AuthEvent, Status>(evt)
         });
 
         Ok(Response::new(Box::pin(stream) as Self::LoginStream))
@@ -129,21 +144,18 @@ impl AuthService for AuthGrpcService {
         request: Request<Submit2FaRequest>,
     ) -> Result<Response<AuthResponse>, Status> {
         let req = request.into_inner();
-        let session = self
+        let (session, cookies) = self
             .container
             .submit_2fa
             .execute(&req.session_id, &req.code)
             .await
-            .map_err(|e| match e {
-                imauth_core::ImauthError::NotFound(m) => Status::not_found(m),
-                other => Status::internal(other.to_string()),
-            })?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(AuthResponse {
             success: session.state == SessionState::Connected,
             session_id: session.id,
             message: session.message.clone().unwrap_or_default(),
-            cookies: session.cookies.iter().map(cookie_to_proto).collect(),
+            cookies: cookies.iter().map(cookie_to_proto).collect(),
         }))
     }
 
@@ -169,10 +181,7 @@ impl AuthService for AuthGrpcService {
             .get_status
             .execute(&req.session_id)
             .await
-            .map_err(|e| match e {
-                imauth_core::ImauthError::NotFound(m) => Status::not_found(m),
-                other => Status::internal(other.to_string()),
-            })?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(AuthStatusResponse {
             session_id: session.id,
@@ -192,7 +201,7 @@ impl AuthService for AuthGrpcService {
             .cancel_session
             .execute(&req.session_id)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(AuthResponse {
             success: true,
@@ -235,7 +244,7 @@ impl SessionService for SessionGrpcService {
             .get_cookies
             .execute(platform, domains)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(CookieList {
             cookies: cookies.iter().map(cookie_to_proto).collect(),
@@ -255,7 +264,7 @@ impl SessionService for SessionGrpcService {
             .update_cookies
             .execute(platform, cookies)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(CookieList {
             cookies: req.cookies,
@@ -275,7 +284,7 @@ impl SessionService for SessionGrpcService {
             .export_netscape
             .execute(platform)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(NetscapeExport { content }))
     }
@@ -293,7 +302,7 @@ impl SessionService for SessionGrpcService {
             .validate_session
             .execute(platform)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(ValidationResult {
             valid: outcome.valid,
@@ -311,7 +320,7 @@ impl SessionService for SessionGrpcService {
             .get_connection_status
             .execute()
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(ConnectionStatusMap { platforms }))
     }
@@ -349,7 +358,7 @@ impl CredentialService for CredentialGrpcService {
             .save_credential
             .execute(platform, &req.username, &req.password, twofa)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(CredentialResponse {
             success: true,
@@ -371,7 +380,7 @@ impl CredentialService for CredentialGrpcService {
             .get_credential
             .execute(platform)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         match cred {
             Some(c) => Ok(Response::new(CredentialInfo {
@@ -396,12 +405,183 @@ impl CredentialService for CredentialGrpcService {
             .delete_credential
             .execute(platform)
             .await
-            .map_err(|e| Status::internal(e.to_string()))?;
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(CredentialResponse {
             success: true,
             platform: req.platform,
             username: String::new(),
         }))
+    }
+}
+
+// ---- unit tests for converters ----------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+    use imauth_core::domain::session::Session as DomainSession;
+
+    #[test]
+    fn map_auth_err_translates_not_found_to_grpc_not_found() {
+        let status = map_auth_err(imauth_core::ImauthError::NotFound("nope".into()));
+        assert_eq!(status.code(), tonic::Code::NotFound);
+        assert_eq!(status.message(), "nope");
+    }
+
+    #[test]
+    fn map_auth_err_translates_platform_to_invalid_argument() {
+        let status = map_auth_err(imauth_core::ImauthError::Platform("bad".into()));
+        assert_eq!(status.code(), tonic::Code::InvalidArgument);
+        assert_eq!(status.message(), "bad");
+    }
+
+    #[test]
+    fn map_auth_err_redacts_other_errors_to_internal() {
+        // We don't want to leak DB error details over the wire.
+        let status = map_auth_err(imauth_core::ImauthError::Database(
+            "select foo from bar: detail".into(),
+        ));
+        assert_eq!(status.code(), tonic::Code::Internal);
+        assert_eq!(status.message(), "Internal server error");
+        assert!(!status.message().contains("select"));
+        assert!(!status.message().contains("detail"));
+    }
+
+    #[test]
+    fn map_auth_err_redacts_encryption_errors() {
+        let status = map_auth_err(imauth_core::ImauthError::Encryption(
+            "decrypt failed: aad".into(),
+        ));
+        assert_eq!(status.code(), tonic::Code::Internal);
+        assert!(!status.message().contains("decrypt"));
+        assert!(!status.message().contains("aad"));
+    }
+
+    #[test]
+    fn platform_from_proto_known_values() {
+        assert!(matches!(platform_from_proto(1), Some(Platform::Instagram)));
+        assert!(matches!(platform_from_proto(2), Some(Platform::Threads)));
+    }
+
+    #[test]
+    fn platform_from_proto_unknown_returns_none() {
+        assert!(platform_from_proto(0).is_none());
+        assert!(platform_from_proto(99).is_none());
+        assert!(platform_from_proto(-1).is_none());
+    }
+
+    #[test]
+    fn session_state_to_proto_covers_every_variant() {
+        let pairs = [
+            (SessionState::Idle, ProtoAuthStatus::Idle),
+            (SessionState::Loading, ProtoAuthStatus::Loading),
+            (SessionState::Authenticating, ProtoAuthStatus::Authenticating),
+            (SessionState::NeedsCreds, ProtoAuthStatus::NeedsCreds),
+            (SessionState::Needs2Fa, ProtoAuthStatus::Needs2fa),
+            (SessionState::NeedsCaptcha, ProtoAuthStatus::NeedsCaptcha),
+            (SessionState::Connected, ProtoAuthStatus::Connected),
+            (SessionState::Failed, ProtoAuthStatus::Failed),
+        ];
+        for (input, expected) in pairs {
+            assert_eq!(session_state_to_proto(&input) as i32, expected as i32);
+        }
+    }
+
+    fn sample_cookie() -> Cookie {
+        Cookie {
+            name: "sessionid".to_string(),
+            value: "abc123".to_string(),
+            domain: ".instagram.com".to_string(),
+            path: "/".to_string(),
+            expires: Some(chrono::Utc.timestamp_opt(1700000000, 0).unwrap()),
+            http_only: true,
+            secure: true,
+        }
+    }
+
+    #[test]
+    fn cookie_to_proto_preserves_all_fields() {
+        let c = sample_cookie();
+        let p = cookie_to_proto(&c);
+        assert_eq!(p.name, "sessionid");
+        assert_eq!(p.value, "abc123");
+        assert_eq!(p.domain, ".instagram.com");
+        assert_eq!(p.path, "/");
+        assert_eq!(p.expires, 1700000000);
+        assert!(p.http_only);
+        assert!(p.secure);
+    }
+
+    #[test]
+    fn cookie_to_proto_handles_missing_expires_as_zero() {
+        let mut c = sample_cookie();
+        c.expires = None;
+        let p = cookie_to_proto(&c);
+        assert_eq!(p.expires, 0);
+    }
+
+    #[test]
+    fn proto_cookie_from_round_trips() {
+        let original = sample_cookie();
+        let p = cookie_to_proto(&original);
+        let back = proto_cookie_from(&p);
+        assert_eq!(back.name, original.name);
+        assert_eq!(back.value, original.value);
+        assert_eq!(back.domain, original.domain);
+        assert_eq!(back.path, original.path);
+        assert_eq!(back.http_only, original.http_only);
+        assert_eq!(back.secure, original.secure);
+        assert_eq!(
+            back.expires.map(|t| t.timestamp()),
+            original.expires.map(|t| t.timestamp())
+        );
+    }
+
+    #[test]
+    fn proto_cookie_from_zero_expires_becomes_some_epoch() {
+        // 0 maps to Some(epoch) via chrono::from_timestamp(0, 0), not None.
+        let p = ProtoCookie {
+            name: "n".into(),
+            value: "v".into(),
+            domain: "d".into(),
+            path: "/".into(),
+            expires: 0,
+            http_only: false,
+            secure: false,
+        };
+        let back = proto_cookie_from(&p);
+        assert!(back.expires.is_some());
+        assert_eq!(back.expires.unwrap().timestamp(), 0);
+    }
+
+    #[test]
+    fn auth_event_from_includes_session_metadata() {
+        let mut sess = DomainSession::new("sess-1".into(), "instagram".into());
+        sess.state = SessionState::NeedsCreds;
+        sess.message = Some("provide credentials".into());
+        sess.requires_input = true;
+        sess.input_type = Some("text".into());
+
+        let evt = auth_event_from(&sess);
+        assert_eq!(evt.session_id, "sess-1");
+        assert_eq!(evt.status, ProtoAuthStatus::NeedsCreds as i32);
+        assert_eq!(evt.message, "provide credentials");
+        assert!(evt.requires_input);
+        assert_eq!(evt.input_type, "text");
+        // Cookies and screenshot are filled in by the caller, not the converter.
+        assert!(evt.cookies.is_empty());
+        assert!(evt.screenshot.is_empty());
+    }
+
+    #[test]
+    fn auth_event_from_defaults_missing_optional_fields_to_empty_strings() {
+        let sess = DomainSession::new("sess-2".into(), "threads".into());
+        let evt = auth_event_from(&sess);
+        assert_eq!(evt.session_id, "sess-2");
+        assert_eq!(evt.message, "");
+        assert_eq!(evt.input_type, "");
+        assert!(!evt.requires_input);
     }
 }

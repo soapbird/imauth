@@ -1,7 +1,5 @@
-mod generated;
-
 use clap::{Parser, Subcommand};
-use generated::v1::{
+use imauth_proto::generated::v1::{
     auth_service_client::AuthServiceClient, credential_service_client::CredentialServiceClient,
     session_service_client::SessionServiceClient, AuthStatus, DeleteCredentialRequest,
     ExportRequest, GetCookiesRequest, GetCredentialRequest, LoginRequest, SaveCredentialRequest,
@@ -16,6 +14,9 @@ use tonic::transport::Channel;
 struct Cli {
     #[arg(short, long, default_value = "http://localhost:50051")]
     server: String,
+
+    #[arg(short = 'k', long, env = "IMAUTH_API_KEY")]
+    api_key: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -102,11 +103,36 @@ fn read_2fa_code() -> io::Result<String> {
 
     let mut code = String::new();
     io::stdin().read_line(&mut code)?;
-    Ok(code.trim().to_string())
+    Ok(normalize_2fa_code(&code))
+}
+
+fn with_api_key<T>(req: tonic::Request<T>, key: &Option<String>) -> tonic::Request<T> {
+    let mut req = req;
+    if let Some(k) = key {
+        req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", k)
+                .parse()
+                .expect("valid ascii api key"),
+        );
+    }
+    req
+}
+
+fn normalize_2fa_code(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let digits: String = trimmed.chars().filter(|c| c.is_ascii_digit()).collect();
+
+    match digits.len() {
+        6 => digits,
+        len if len > 6 => digits[len - 6..].to_string(),
+        _ => trimmed.to_string(),
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenvy::dotenv().ok();
     tracing_subscriber::fmt::init();
     let cli = Cli::parse();
 
@@ -121,11 +147,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => {
             let mut client = AuthServiceClient::new(channel.clone());
 
-            let request = tonic::Request::new(LoginRequest {
-                platform: platform_to_proto(&platform)?,
-                username,
-                password,
-            });
+            let request = with_api_key(
+                tonic::Request::new(LoginRequest {
+                    platform: platform_to_proto(&platform)?,
+                    username,
+                    password,
+                }),
+                &cli.api_key,
+            );
 
             let mut stream = client.login(request).await?.into_inner();
 
@@ -137,7 +166,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     match event.input_type.as_str() {
                         "2fa_code" => {
                             let code = match &twofa {
-                                Some(Some(code)) if !code.is_empty() => Some(code.clone()),
+                                Some(Some(code)) if !code.is_empty() => {
+                                    Some(normalize_2fa_code(code))
+                                }
                                 Some(_) => Some(read_2fa_code()?),
                                 None => None,
                             };
@@ -145,10 +176,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             if let Some(code) = code {
                                 let mut client = AuthServiceClient::new(channel.clone());
                                 let resp = client
-                                    .submit2_fa(tonic::Request::new(Submit2FaRequest {
-                                        session_id: event.session_id.clone(),
-                                        code,
-                                    }))
+                                    .submit2_fa(with_api_key(
+                                        tonic::Request::new(Submit2FaRequest {
+                                            session_id: event.session_id.clone(),
+                                            code,
+                                        }),
+                                        &cli.api_key,
+                                    ))
                                     .await?;
                                 let resp = resp.into_inner();
                                 println!(
@@ -185,11 +219,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-
         Commands::Status { session_id } => {
             let mut client = AuthServiceClient::new(channel);
             let resp = client
-                .get_status(tonic::Request::new(StatusRequest { session_id }))
+                .get_status(with_api_key(
+                    tonic::Request::new(StatusRequest { session_id }),
+                    &cli.api_key,
+                ))
                 .await?;
             println!("{:#?}", resp.into_inner());
         }
@@ -199,17 +235,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if format == "netscape" {
                 let resp = client
-                    .export_netscape(tonic::Request::new(ExportRequest {
-                        platform: platform_to_proto(&platform)?,
-                    }))
+                    .export_netscape(with_api_key(
+                        tonic::Request::new(ExportRequest {
+                            platform: platform_to_proto(&platform)?,
+                        }),
+                        &cli.api_key,
+                    ))
                     .await?;
                 println!("{}", resp.into_inner().content);
             } else {
                 let resp = client
-                    .get_cookies(tonic::Request::new(GetCookiesRequest {
-                        platform: platform_to_proto(&platform)?,
-                        domains: vec![],
-                    }))
+                    .get_cookies(with_api_key(
+                        tonic::Request::new(GetCookiesRequest {
+                            platform: platform_to_proto(&platform)?,
+                            domains: vec![],
+                        }),
+                        &cli.api_key,
+                    ))
                     .await?;
                 let cookies = resp.into_inner().cookies;
                 for c in cookies {
@@ -231,28 +273,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     twofa_method,
                 } => {
                     let resp = client
-                        .save(tonic::Request::new(SaveCredentialRequest {
-                            platform: platform_to_proto(&platform)?,
-                            username,
-                            password,
-                            twofa_method: twofa_method.unwrap_or_default(),
-                        }))
+                        .save(with_api_key(
+                            tonic::Request::new(SaveCredentialRequest {
+                                platform: platform_to_proto(&platform)?,
+                                username,
+                                password,
+                                twofa_method: twofa_method.unwrap_or_default(),
+                            }),
+                            &cli.api_key,
+                        ))
                         .await?;
                     println!("{:#?}", resp.into_inner());
                 }
                 CredentialAction::Get { platform } => {
                     let resp = client
-                        .get(tonic::Request::new(GetCredentialRequest {
-                            platform: platform_to_proto(&platform)?,
-                        }))
+                        .get(with_api_key(
+                            tonic::Request::new(GetCredentialRequest {
+                                platform: platform_to_proto(&platform)?,
+                            }),
+                            &cli.api_key,
+                        ))
                         .await?;
                     println!("{:#?}", resp.into_inner());
                 }
                 CredentialAction::Delete { platform } => {
                     let resp = client
-                        .delete(tonic::Request::new(DeleteCredentialRequest {
-                            platform: platform_to_proto(&platform)?,
-                        }))
+                        .delete(with_api_key(
+                            tonic::Request::new(DeleteCredentialRequest {
+                                platform: platform_to_proto(&platform)?,
+                            }),
+                            &cli.api_key,
+                        ))
                         .await?;
                     println!("{:#?}", resp.into_inner());
                 }
@@ -265,4 +316,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{platform_to_proto, normalize_2fa_code, with_api_key};
+
+    #[test]
+    fn normalize_2fa_code_keeps_six_digits_including_leading_zero() {
+        assert_eq!(normalize_2fa_code(" 007594\n"), "007594");
+    }
+
+    #[test]
+    fn normalize_2fa_code_uses_last_six_digits_when_terminal_input_was_prefixed() {
+        assert_eq!(normalize_2fa_code("746736362"), "736362");
+    }
+
+    #[test]
+    fn normalize_2fa_code_strips_separators() {
+        assert_eq!(normalize_2fa_code("123 456"), "123456");
+    }
+
+    #[test]
+    fn platform_to_proto_accepts_known_platforms_case_insensitive() {
+        assert_eq!(platform_to_proto("instagram").unwrap(), 1);
+        assert_eq!(platform_to_proto("Instagram").unwrap(), 1);
+        assert_eq!(platform_to_proto("THREADS").unwrap(), 2);
+    }
+
+    #[test]
+    fn platform_to_proto_rejects_unknown_platform_with_helpful_message() {
+        let err = platform_to_proto("facebook").unwrap_err();
+        assert!(err.contains("facebook"));
+        assert!(err.contains("instagram"));
+        assert!(err.contains("threads"));
+    }
+
+    #[test]
+    fn with_api_key_does_not_set_authorization_when_key_is_none() {
+        let req: tonic::Request<()> = tonic::Request::new(());
+        let req = with_api_key(req, &None);
+        assert!(req.metadata().get("authorization").is_none());
+    }
+
+    #[test]
+    fn with_api_key_sets_bearer_authorization_when_key_present() {
+        let req: tonic::Request<()> = tonic::Request::new(());
+        let req = with_api_key(req, &Some("secret-key".to_string()));
+        let val = req
+            .metadata()
+            .get("authorization")
+            .expect("authorization header set")
+            .to_str()
+            .unwrap();
+        assert_eq!(val, "Bearer secret-key");
+    }
 }

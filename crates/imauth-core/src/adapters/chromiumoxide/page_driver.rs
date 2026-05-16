@@ -1,8 +1,9 @@
-use crate::Result;
 use crate::domain::session::Cookie;
 use crate::ports::browser::PageDriver;
 use crate::ImauthError;
+use crate::Result;
 use async_trait::async_trait;
+use chromiumoxide::cdp::browser_protocol::input::InsertTextParams;
 use chromiumoxide::page::Page;
 use serde::de::DeserializeOwned;
 use std::time::Duration;
@@ -48,7 +49,9 @@ impl PageDriver for ChromiumOxidePageDriver {
         tokio::time::timeout(Duration::from_secs(timeout_secs), nav)
             .await
             .map_err(|_| {
-                ImauthError::Browser(format!("Navigation to {url} timed out after {timeout_secs}s"))
+                ImauthError::Browser(format!(
+                    "Navigation to {url} timed out after {timeout_secs}s"
+                ))
             })??;
         Ok(())
     }
@@ -64,35 +67,85 @@ impl PageDriver for ChromiumOxidePageDriver {
 
     async fn fill_input(&self, selector: &str, value: &str) -> Result<()> {
         let selector_js = js_string(selector)?;
-        let value_js = js_string(value)?;
 
-        let js = format!(
-            r#"() => {{
-                const el = document.querySelector({selector_js});
-                if (!el) return false;
-                el.scrollIntoView({{ block: 'center', inline: 'center' }});
-                el.focus();
-                const valueSetter = Object.getOwnPropertyDescriptor(el.__proto__, 'value')?.set;
-                const prototype = Object.getPrototypeOf(el);
-                const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-                if (prototypeValueSetter && valueSetter !== prototypeValueSetter) {{
-                    prototypeValueSetter.call(el, {value_js});
-                }} else if (valueSetter) {{
-                    valueSetter.call(el, {value_js});
-                }} else {{
-                    el.value = {value_js};
-                }}
-                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                return true;
-            }}"#
-        );
-        let filled: bool = self.eval_into(js, "fill_input").await?;
-        if !filled {
+        let exists: bool = self
+            .eval_into(
+                format!(
+                    r#"() => {{
+                        const el = document.querySelector({selector_js});
+                        if (!el) return false;
+                        el.scrollIntoView({{ block: 'center', inline: 'center' }});
+                        el.focus();
+                        return document.activeElement === el;
+                    }}"#
+                ),
+                "focus_input",
+            )
+            .await?;
+        if !exists {
             return Err(ImauthError::Browser(format!(
-                "Element not found {selector}"
+                "Could not focus input {selector}"
             )));
         }
+
+        let cleared: bool = self
+            .eval_into(
+                format!(
+                    r#"() => {{
+                        const el = document.querySelector({selector_js});
+                        if (!el) return false;
+                        el.scrollIntoView({{ block: 'center', inline: 'center' }});
+                        el.focus();
+
+                        const prototype = Object.getPrototypeOf(el);
+                        const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+                        const previousValue = el.value;
+                        if (valueSetter) {{
+                            valueSetter.call(el, '');
+                        }} else {{
+                            el.value = '';
+                        }}
+
+                        // React tracks the last input value internally. Resetting the tracker
+                        // before dispatching lets controlled inputs observe the clear event.
+                        const tracker = el._valueTracker;
+                        if (tracker) tracker.setValue(previousValue);
+                        el.dispatchEvent(new InputEvent('input', {{ bubbles: true, inputType: 'deleteContentBackward' }}));
+                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        return document.activeElement === el;
+                    }}"#
+                ),
+                "clear_input",
+            )
+            .await?;
+        if !cleared {
+            return Err(ImauthError::Browser(format!(
+                "Could not focus input {selector}"
+            )));
+        }
+
+        self.page
+            .execute(InsertTextParams::new(value))
+            .await
+            .map_err(|e| ImauthError::Browser(format!("Failed to type into {selector}: {e}")))?;
+
+        let value_matches: bool = self
+            .eval_into(
+                format!(
+                    r#"() => {{
+                        const el = document.querySelector({selector_js});
+                        return !!el && el.value.length > 0;
+                    }}"#
+                ),
+                "verify_input_value",
+            )
+            .await?;
+        if !value_matches {
+            return Err(ImauthError::Browser(format!(
+                "Input {selector} remained empty after typing"
+            )));
+        }
+
         Ok(())
     }
 
@@ -189,11 +242,8 @@ impl PageDriver for ChromiumOxidePageDriver {
     }
 
     async fn content_html(&self) -> Result<String> {
-        self.eval_into(
-            "() => document.documentElement.outerHTML",
-            "content_html",
-        )
-        .await
+        self.eval_into("() => document.documentElement.outerHTML", "content_html")
+            .await
     }
 }
 

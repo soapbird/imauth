@@ -1,7 +1,7 @@
-use crate::Result;
 use crate::domain::session::{Cookie, Session};
 use crate::domain::Platform;
 use crate::ports::snapshot::SnapshotSink;
+use crate::Result;
 use async_trait::async_trait;
 
 /// Acquires an isolated browser session (e.g. a CDP target) from a pool.
@@ -51,7 +51,7 @@ pub trait PlatformDriver: Send + Sync {
         password: &'a str,
         session: &'a mut Session,
         snapshot: &'a dyn SnapshotSink,
-    ) -> Result<()>;
+    ) -> Result<Vec<Cookie>>;
 
     async fn submit_2fa<'a>(
         &'a self,
@@ -60,5 +60,5 @@ pub trait PlatformDriver: Send + Sync {
         code: &'a str,
         session: &'a mut Session,
         snapshot: &'a dyn SnapshotSink,
-    ) -> Result<()>;
+    ) -> Result<Vec<Cookie>>;
 }

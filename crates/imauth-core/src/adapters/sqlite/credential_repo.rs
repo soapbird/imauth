@@ -1,7 +1,7 @@
-use crate::Result;
 use crate::domain::Credential;
 use crate::ports::encryption::EncryptionService;
 use crate::ports::repository::CredentialRepository;
+use crate::Result;
 use async_trait::async_trait;
 use sqlx::SqlitePool;
 use std::sync::Arc;

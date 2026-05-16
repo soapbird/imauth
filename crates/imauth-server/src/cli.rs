@@ -18,8 +18,8 @@ pub enum Commands {
         /// gRPC port
         #[arg(short, long, default_value = "50051")]
         port: u16,
-        /// NATS URL
-        #[arg(long, default_value = "nats://localhost:4222")]
-        nats: String,
+        /// API key for incoming requests (also reads IMAUTH_API_KEY env var)
+        #[arg(short = 'k', long, env = "IMAUTH_API_KEY")]
+        api_key: Option<String>,
     },
 }
