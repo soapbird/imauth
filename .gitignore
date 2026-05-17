@@ -38,3 +38,8 @@ sdk/typescript/*.log
 
 # Secrets
 .env
+
+# Local tool directories
+.omx/
+.venv/
+**/.venv/
