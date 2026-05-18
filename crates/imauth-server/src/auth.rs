@@ -1,3 +1,5 @@
+#![allow(clippy::result_large_err)]
+
 //! Bearer/x-api-key authentication interceptor shared by the binary and the
 //! integration tests. Keeping it in a single place means the constant-time
 //! comparison + whitespace-trim logic can't drift between the production code

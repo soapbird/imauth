@@ -2,6 +2,7 @@ export enum Platform {
   UNSPECIFIED = 0,
   INSTAGRAM = 1,
   THREADS = 2,
+  NAVER = 3,
 }
 
 export enum AuthStatus {
@@ -9,9 +10,7 @@ export enum AuthStatus {
   IDLE = 1,
   LOADING = 2,
   AUTHENTICATING = 3,
-  NEEDS_CREDS = 4,
-  NEEDS_2FA = 5,
-  NEEDS_CAPTCHA = 6,
+  WAITING_FOR_USER = 4,
   CONNECTED = 7,
   FAILED = 8,
 }
@@ -28,11 +27,13 @@ export interface Cookie {
 
 export interface AuthEvent {
   status: AuthStatus;
+  sessionId: string;
   message: string;
   requiresInput: boolean;
   inputType: string;
   cookies: Cookie[];
   screenshot: Buffer;
+  viewerUrl: string;
 }
 
 export interface CredentialInfo {

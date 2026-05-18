@@ -16,13 +16,11 @@ use imauth_core::{
         credentials::{DeleteCredentialUseCase, GetCredentialUseCase, SaveCredentialUseCase},
         login::LoginUseCase,
         status::{CancelSessionUseCase, GetStatusUseCase},
-        submit_2fa::Submit2FaUseCase,
         AppContainer,
     },
     config::Config,
-    domain::{session::Cookie, Platform},
-    ports::browser::{BrowserSession, BrowserSessionFactory, PageDriver, PlatformDriver},
-    ports::snapshot::SnapshotSink,
+    domain::Platform,
+    ports::browser::{BrowserSessionFactory, BrowserSession, PageDriver},
 };
 use imauth_proto::generated::v1::{
     credential_service_client::CredentialServiceClient,
@@ -44,6 +42,10 @@ impl BrowserSessionFactory for DummyBrowserFactory {
     async fn acquire(&self) -> imauth_core::Result<Box<dyn BrowserSession>> {
         unimplemented!("dummy browser factory")
     }
+
+    fn viewer_url(&self) -> Option<String> {
+        None
+    }
 }
 
 #[allow(dead_code)]
@@ -57,47 +59,8 @@ impl BrowserSession for DummyBrowserSession {
     async fn existing_pages(&self) -> imauth_core::Result<Vec<Box<dyn PageDriver>>> {
         unimplemented!("dummy browser session")
     }
-}
-
-struct DummyPlatformDriver;
-
-#[async_trait::async_trait]
-impl PlatformDriver for DummyPlatformDriver {
-    async fn login<'a>(
-        &'a self,
-        _page: &'a dyn PageDriver,
-        _platform: Platform,
-        _username: &'a str,
-        _password: &'a str,
-        _session: &'a mut imauth_core::domain::session::Session,
-        _snapshot: &'a dyn SnapshotSink,
-    ) -> imauth_core::Result<Vec<Cookie>> {
-        unimplemented!("dummy platform driver")
-    }
-
-    async fn submit_2fa<'a>(
-        &'a self,
-        _page: &'a dyn PageDriver,
-        _platform: Platform,
-        _code: &'a str,
-        _session: &'a mut imauth_core::domain::session::Session,
-        _snapshot: &'a dyn SnapshotSink,
-    ) -> imauth_core::Result<Vec<Cookie>> {
-        unimplemented!("dummy platform driver")
-    }
-}
-
-struct DummySnapshotSink;
-
-#[async_trait::async_trait]
-impl SnapshotSink for DummySnapshotSink {
-    async fn capture<'a>(
-        &'a self,
-        _session_id: &'a str,
-        _label: &'a str,
-        _html: &'a str,
-        _png: Option<&'a [u8]>,
-    ) {
+    fn viewer_url(&self) -> String {
+        String::new()
     }
 }
 
@@ -127,14 +90,6 @@ async fn test_container() -> AppContainer {
     );
 
     let browser: Arc<dyn BrowserSessionFactory> = Arc::new(DummyBrowserFactory);
-    let mut drivers = std::collections::HashMap::new();
-    drivers.insert(
-        Platform::Instagram,
-        Arc::new(DummyPlatformDriver) as Arc<dyn PlatformDriver>,
-    );
-    let snapshot: Arc<dyn SnapshotSink> = Arc::new(DummySnapshotSink);
-
-    let active = Arc::new(imauth_core::application::active_session::ActiveSessionRegistry::new());
 
     AppContainer {
         config,
@@ -142,16 +97,7 @@ async fn test_container() -> AppContainer {
             sessions.clone(),
             cookies.clone(),
             browser.clone(),
-            active.clone(),
-            drivers.clone(),
-            snapshot.clone(),
-        )),
-        submit_2fa: Arc::new(Submit2FaUseCase::new(
-            sessions.clone(),
-            cookies.clone(),
-            active.clone(),
-            drivers.clone(),
-            snapshot.clone(),
+            std::time::Duration::from_secs(300),
         )),
         get_cookies: Arc::new(GetCookiesUseCase::new(cookies.clone())),
         update_cookies: Arc::new(UpdateCookiesUseCase::new(cookies.clone())),

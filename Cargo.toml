@@ -28,3 +28,6 @@ async-trait = "0.1"
 mockall = "0.13"
 subtle = "2"
 dotenvy = "0.15"
+
+[patch.crates-io]
+chromiumoxide_types = { path = "patches/chromiumoxide_types" }

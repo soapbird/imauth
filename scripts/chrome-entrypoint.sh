@@ -1,80 +1,70 @@
 #!/bin/sh
 set -e
 
-# Start Chromium in the background (binds to 127.0.0.1:9223)
+# --- Configuration ---
+VNC_PASSWORD="${VNC_PASSWORD:-imauth}"
+DISPLAY_NUM="${DISPLAY_NUM:-99}"
+DISPLAY=":${DISPLAY_NUM}"
+
+# --- Start Xvfb (virtual framebuffer) ---
+Xvfb "$DISPLAY" -screen 0 1280x1024x24 &
+XVFB_PID=$!
+
+# Wait for Xvfb to start
+for i in $(seq 1 10); do
+  if [ -e "/tmp/.X11-unix/X${DISPLAY_NUM}" ]; then
+    break
+  fi
+  sleep 0.5
+done
+
+# --- Start x11vnc ---
+x11vnc -display "$DISPLAY" -forever -noxdamage -repeat -passwd "$VNC_PASSWORD" -shared &
+X11VNC_PID=$!
+
+# --- Start noVNC (websockify) ---
+# Try both common noVNC static file paths
+NOVNC_WEB_DIR="/usr/share/novnc"
+if [ ! -d "$NOVNC_WEB_DIR" ]; then
+  NOVNC_WEB_DIR="/usr/share/noVNC"
+fi
+websockify --web="$NOVNC_WEB_DIR" 6080 localhost:5900 &
+WEBSOCKIFY_PID=$!
+
+# --- Start Chromium in headed mode on Xvfb ---
 /usr/bin/chromium \
-  --remote-debugging-port=9223 \
-  --remote-allow-origins=http://localhost:50051 \
-  --headless=new \
-  --disable-gpu \
+  --remote-debugging-port=9222 \
+  --remote-debugging-address=0.0.0.0 \
+  --remote-allow-origins=* \
   --no-sandbox \
   --disable-setuid-sandbox \
-  --disable-dev-shm-usage &
+  --disable-dev-shm-usage \
+  --disable-gpu \
+  --window-size=390,844 \
+  --display="$DISPLAY" &
 
 CHROME_PID=$!
 
 # Wait for Chromium CDP to be ready
 for i in $(seq 1 30); do
-  if curl -sf http://127.0.0.1:9223/json/version >/dev/null 2>&1; then
+  if curl -sf http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
 
-# Start a TCP proxy so CDP is reachable on 0.0.0.0:9222 from other containers
-python3 -c "
-import socket, threading
-
-def forward(a, b):
-    try:
-        while True:
-            d = a.recv(4096)
-            if not d:
-                break
-            b.sendall(d)
-    except:
-        pass
-
-def handle(client):
-    try:
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.connect(('127.0.0.1', 9223))
-        t1 = threading.Thread(target=forward, args=(client, server))
-        t2 = threading.Thread(target=forward, args=(server, client))
-        t1.start()
-        t2.start()
-        t1.join()
-        t2.join()
-    except:
-        pass
-    finally:
-        client.close()
-
-ls = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-ls.bind(('0.0.0.0', 9222))
-ls.listen(5)
-
-try:
-    while True:
-        conn, _ = ls.accept()
-        threading.Thread(target=handle, args=(conn,), daemon=True).start()
-except KeyboardInterrupt:
-    pass
-finally:
-    ls.close()
-" &
-
-PROXY_PID=$!
-
 # Forward termination signals
 _cleanup() {
-  kill "$PROXY_PID" 2>/dev/null || true
   kill "$CHROME_PID" 2>/dev/null || true
+  kill "$WEBSOCKIFY_PID" 2>/dev/null || true
+  kill "$X11VNC_PID" 2>/dev/null || true
+  kill "$XVFB_PID" 2>/dev/null || true
   wait
 }
 trap _cleanup TERM INT
 
 wait "$CHROME_PID"
-kill "$PROXY_PID" 2>/dev/null || true
+kill "$WEBSOCKIFY_PID" 2>/dev/null || true
+kill "$X11VNC_PID" 2>/dev/null || true
+kill "$XVFB_PID" 2>/dev/null || true
 wait

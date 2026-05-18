@@ -7,14 +7,13 @@ from pydantic import BaseModel
 class Platform(str, Enum):
     INSTAGRAM = "instagram"
     THREADS = "threads"
+    NAVER = "naver"
 
 class AuthStatus(str, Enum):
     IDLE = "idle"
     LOADING = "loading"
     AUTHENTICATING = "authenticating"
-    NEEDS_CREDS = "needs_creds"
-    NEEDS_2FA = "needs_2fa"
-    NEEDS_CAPTCHA = "needs_captcha"
+    WAITING_FOR_USER = "waiting_for_user"
     CONNECTED = "connected"
     FAILED = "failed"
 
@@ -35,6 +34,7 @@ class AuthEvent(BaseModel):
     input_type: str = ""
     cookies: list[Cookie] = []
     screenshot: bytes = b""
+    viewer_url: str = ""
 
 class CredentialInfo(BaseModel):
     platform: Platform

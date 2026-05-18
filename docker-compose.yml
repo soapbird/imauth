@@ -1,44 +1,76 @@
 services:
-  chrome:
-    # Pinned to a specific tag so Chromium/CDP wire format and login selectors
-    # don't shift under upstream changes. Bump intentionally with the matching
-    # chromiumoxide crate update.
-    image: selenium/standalone-chromium:131.0
+  chrome-0:
+    build:
+      context: .
+      dockerfile: Dockerfile.chrome
     shm_size: '2gb'
+    environment:
+      - DISPLAY_NUM=99
+      - VNC_PASSWORD=${VNC_PASSWORD:-imauth}
     ports:
       - "${IMAUTH_GRPC_HOST_PORT:-50051}:50051"
-    volumes:
-      - ./scripts/chrome-entrypoint.sh:/chrome-entrypoint.sh:ro
+      - "${NOVNC_PORT_0:-6081}:6080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9222/json/version"]
       interval: 3s
       timeout: 5s
       retries: 10
-    entrypoint: ["/bin/sh", "/chrome-entrypoint.sh"]
+
+  chrome-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.chrome
+    shm_size: '2gb'
+    environment:
+      - DISPLAY_NUM=100
+      - VNC_PASSWORD=${VNC_PASSWORD:-imauth}
+    ports:
+      - "${NOVNC_PORT_1:-6082}:6080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9222/json/version"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  chrome-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.chrome
+    shm_size: '2gb'
+    environment:
+      - DISPLAY_NUM=101
+      - VNC_PASSWORD=${VNC_PASSWORD:-imauth}
+    ports:
+      - "${NOVNC_PORT_2:-6083}:6080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9222/json/version"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
 
   server:
     build:
       context: .
       dockerfile: Dockerfile
     environment:
-      - IMAUTH_CDP_URL=http://localhost:9222
+      - IMAUTH_CDP_URLS=http://localhost:9222
       - IMAUTH_GRPC_ADDR=0.0.0.0:50051
       - IMAUTH_DATA_DIR=/data/.imauth/data
-      # Required: 32-byte base64-encoded AES-256 key
-      # Generate with: openssl rand -base64 32
       - IMAUTH_ENCRYPTION_KEY=${IMAUTH_ENCRYPTION_KEY}
-      # Required: gRPC API key for client authentication.
-      # Generate with: openssl rand -hex 32
-      # Server refuses requests without a matching Authorization: Bearer <key> header.
-      # If unset/empty, the server runs unauthenticated — DO NOT do this when 50051 is reachable from untrusted hosts.
       - IMAUTH_API_KEY=${IMAUTH_API_KEY}
+      - IMAUTH_NOVNC_BASE_URL=http://${IMAUTH_SERVER_HOSTNAME:-localhost}
+      - IMAUTH_NOVNC_PORTS=${NOVNC_PORT_0:-6081},${NOVNC_PORT_1:-6082},${NOVNC_PORT_2:-6083}
     volumes:
       - imauth-data:/data/.imauth
     depends_on:
-      chrome:
+      chrome-0:
+        condition: service_healthy
+      chrome-1:
+        condition: service_healthy
+      chrome-2:
         condition: service_healthy
     command: ["serve"]
-    network_mode: service:chrome
+    network_mode: service:chrome-0
 
 volumes:
   imauth-data:

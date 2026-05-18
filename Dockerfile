@@ -12,7 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /build
 
 # Copy workspace files
+COPY .cargo/config.toml ./.cargo/config.toml
 COPY Cargo.toml Cargo.lock ./
+COPY patches/ ./patches/
 COPY crates/ ./crates/
 COPY proto/ ./proto/
 

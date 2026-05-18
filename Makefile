@@ -36,7 +36,7 @@ run-server:
 	cargo run --release -p imauth-server -- serve
 
 run-cli-login:
-	cargo run --release -p imauth-cli -- login --platform instagram --username user -w pass
+	cargo run --release -p imauth-cli -- login --platform instagram
 
 start-local:
 	@./scripts/start-local.sh

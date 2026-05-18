@@ -54,28 +54,16 @@ class AsyncImauthClient:
     async def login(
         self,
         platform: Platform,
-        username: str,
-        password: str,
     ) -> AsyncIterator[AuthEvent]:
-        """Start login and yield auth events."""
+        """Start login (user-driven via browser) and yield auth events."""
         stub = auth_pb2_grpc.AuthServiceStub(self._channel)
         req = auth_pb2.LoginRequest(
             platform=platform_to_proto(platform),
-            username=username,
-            password=password,
         )
         async for event in stub.Login(req, metadata=self._meta()):
             yield auth_event_from_proto(event)
 
-    async def submit_2fa(self, session_id: str, code: str) -> AuthEvent:
-        """Submit 2FA code for an ongoing session."""
-        stub = auth_pb2_grpc.AuthServiceStub(self._channel)
-        req = auth_pb2.Submit2FARequest(session_id=session_id, code=code)
-        resp = await stub.Submit2FA(req, metadata=self._meta())
-        return auth_response_to_event(resp)
-
-    async def submit_captcha(self, session_id: str, solution: str) -> AuthEvent:
-        """Submit a captcha solution for an ongoing session."""
+    async def get_status(self, session_id: str) -> AuthEvent:
         stub = auth_pb2_grpc.AuthServiceStub(self._channel)
         req = auth_pb2.SubmitCaptchaRequest(session_id=session_id, solution=solution)
         resp = await stub.SubmitCaptcha(req, metadata=self._meta())

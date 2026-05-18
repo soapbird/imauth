@@ -66,41 +66,11 @@ export class ImauthClient {
 
   // --- auth ---------------------------------------------------------------
 
-  login(
-    platform: Platform,
-    username: string,
-    password: string
-  ): grpc.ClientReadableStream<any> {
+  login(platform: Platform): grpc.ClientReadableStream<any> {
     return this.authClient.Login(
-      { platform, username, password },
+      { platform },
       this.buildMetadata()
     );
-  }
-
-  submit2FA(sessionId: string, code: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-      this.authClient.Submit2FA(
-        { session_id: sessionId, code },
-        this.buildMetadata(),
-        (err: any, response: any) => {
-          if (err) reject(err);
-          else resolve(response);
-        }
-      );
-    });
-  }
-
-  submitCaptcha(sessionId: string, solution: string): Promise<any> {
-    return new Promise((resolve, reject) => {
-      this.authClient.SubmitCaptcha(
-        { session_id: sessionId, solution },
-        this.buildMetadata(),
-        (err: any, response: any) => {
-          if (err) reject(err);
-          else resolve(response);
-        }
-      );
-    });
   }
 
   getStatus(sessionId: string): Promise<any> {

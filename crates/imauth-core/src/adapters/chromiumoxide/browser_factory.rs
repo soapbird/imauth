@@ -8,21 +8,21 @@ use futures::StreamExt;
 use std::sync::Arc;
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 
-/// Pool of pre-connected CDP browsers, plus a semaphore that caps concurrent acquires.
-pub struct ChromiumOxideBrowserFactory {
+/// A single Chrome instance with its own CDP connection, semaphore, and noVNC URL.
+pub struct ChromeSlot {
     cdp_url: String,
-    max_size: usize,
     semaphore: Arc<Semaphore>,
     browsers: Arc<Mutex<Vec<Browser>>>,
+    viewer_url: String,
 }
 
-impl ChromiumOxideBrowserFactory {
-    pub fn new(cdp_url: String, max_size: usize) -> Self {
+impl ChromeSlot {
+    pub fn new(cdp_url: String, viewer_url: String) -> Self {
         Self {
             cdp_url,
-            max_size,
-            semaphore: Arc::new(Semaphore::new(max_size)),
+            semaphore: Arc::new(Semaphore::new(1)), // 1 concurrent session per slot
             browsers: Arc::new(Mutex::new(Vec::new())),
+            viewer_url,
         }
     }
 
@@ -42,31 +42,96 @@ impl ChromiumOxideBrowserFactory {
     }
 }
 
+/// Pool of Chrome slots. Each slot is an independent Chrome instance with its
+/// own noVNC URL. Login acquires a free slot, login completion releases it.
+pub struct PooledBrowserFactory {
+    slots: Vec<Arc<ChromeSlot>>,
+}
+
+impl PooledBrowserFactory {
+    pub fn new(cdp_urls: Vec<String>, novnc_base_url: &str, novnc_ports: &[u16]) -> Self {
+        let slots = cdp_urls
+            .iter()
+            .enumerate()
+            .map(|(i, cdp_url)| {
+                let viewer_url = if i < novnc_ports.len() {
+                    format!("{}:{}/vnc.html?autoconnect=true&clipboard_seamless=1&clipboard_up=1&clipboard_down=1", novnc_base_url, novnc_ports[i])
+                } else if novnc_ports.is_empty() {
+                    novnc_base_url.to_string()
+                } else {
+                    format!(
+                        "{}:{}/vnc.html?autoconnect=true&clipboard_seamless=1&clipboard_up=1&clipboard_down=1",
+                        novnc_base_url,
+                        novnc_ports[novnc_ports.len() - 1]
+                    )
+                };
+                Arc::new(ChromeSlot::new(cdp_url.clone(), viewer_url))
+            })
+            .collect();
+
+        Self { slots }
+    }
+}
+
 #[async_trait]
-impl BrowserSessionFactory for ChromiumOxideBrowserFactory {
+impl BrowserSessionFactory for PooledBrowserFactory {
     async fn acquire(&self) -> Result<Box<dyn BrowserSession>> {
-        let permit = self
+        // Try each slot in order; first available wins.
+        for slot in &self.slots {
+            if let Ok(permit) = slot.semaphore.clone().try_acquire_owned() {
+                let mut browsers = slot.browsers.lock().await;
+                let browser = match browsers.pop() {
+                    Some(b) => b,
+                    None => {
+                        drop(browsers);
+                        match ChromeSlot::connect(&slot.cdp_url).await {
+                            Ok(b) => b,
+                            Err(_e) => continue, // try next slot
+                        }
+                    }
+                };
+
+                return Ok(Box::new(ChromiumOxideBrowserSession {
+                    browser: Some(browser),
+                    pool: slot.browsers.clone(),
+                    max_size: 1,
+                    viewer_url: slot.viewer_url.clone(),
+                    _permit: permit,
+                }));
+            }
+        }
+
+        // All slots busy — block on the first one.
+        let slot = &self.slots[0];
+        let permit = slot
             .semaphore
             .clone()
             .acquire_owned()
             .await
-            .map_err(|e| ImauthError::Browser(format!("Semaphore error: {e}")))?;
+            .map_err(|e| ImauthError::Browser(format!("All browser slots busy: {e}")))?;
 
-        let mut browsers = self.browsers.lock().await;
+        let mut browsers = slot.browsers.lock().await;
         let browser = match browsers.pop() {
             Some(b) => b,
             None => {
                 drop(browsers);
-                Self::connect(&self.cdp_url).await?
+                ChromeSlot::connect(&slot.cdp_url).await?
             }
         };
 
         Ok(Box::new(ChromiumOxideBrowserSession {
             browser: Some(browser),
-            pool: self.browsers.clone(),
-            max_size: self.max_size,
+            pool: slot.browsers.clone(),
+            max_size: 1,
+            viewer_url: slot.viewer_url.clone(),
             _permit: permit,
         }))
+    }
+
+    fn viewer_url(&self) -> Option<String> {
+        // Return the first slot's URL as default; actual per-slot URL
+        // is returned via the session's viewer_url field.
+        self.slots.first().map(|s| s.viewer_url.clone())
     }
 }
 
@@ -75,18 +140,19 @@ pub struct ChromiumOxideBrowserSession {
     browser: Option<Browser>,
     pool: Arc<Mutex<Vec<Browser>>>,
     max_size: usize,
+    viewer_url: String,
     _permit: OwnedSemaphorePermit,
 }
 
 impl ChromiumOxideBrowserSession {
-    /// Returns the wrapped browser handle. Result-returning so that a future
-    /// code path that takes the browser out via `take()` outside of `Drop`
-    /// surfaces a typed error instead of panicking inside an async task and
-    /// leaking the pool permit forever.
     fn inner(&self) -> Result<&Browser> {
         self.browser
             .as_ref()
             .ok_or_else(|| ImauthError::Browser("browser session already released".into()))
+    }
+
+    pub fn viewer_url(&self) -> &str {
+        &self.viewer_url
     }
 }
 
@@ -111,6 +177,10 @@ impl BrowserSession for ChromiumOxideBrowserSession {
             .into_iter()
             .map(|p| Box::new(ChromiumOxidePageDriver::new(p)) as Box<dyn PageDriver>)
             .collect())
+    }
+
+    fn viewer_url(&self) -> String {
+        self.viewer_url.clone()
     }
 }
 

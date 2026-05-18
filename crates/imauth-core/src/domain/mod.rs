@@ -4,7 +4,6 @@ pub mod auth;
 pub mod credential;
 pub mod platform;
 pub mod refresh_token;
-pub mod selectors;
 pub mod session;
 
 pub use credential::Credential;

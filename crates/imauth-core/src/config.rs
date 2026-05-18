@@ -11,10 +11,21 @@ pub struct ServerConfig {
 pub struct BrowserConfig {
     #[serde(default = "default_cdp_url")]
     pub cdp_url: String,
+    /// Comma-separated CDP URLs for pooled Chrome instances.
+    /// When set, overrides `cdp_url`.
+    #[serde(default)]
+    pub cdp_urls: Option<String>,
     #[serde(default = "default_max_pool_size")]
     pub max_pool_size: usize,
     #[serde(default = "default_page_timeout_secs")]
     pub page_timeout_secs: u64,
+    #[serde(default)]
+    pub novnc_base_url: Option<String>,
+    /// Comma-separated noVNC port numbers, one per Chrome instance.
+    #[serde(default)]
+    pub novnc_ports: Option<String>,
+    #[serde(default = "default_login_timeout_secs")]
+    pub login_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -66,6 +77,10 @@ fn default_page_timeout_secs() -> u64 {
     30
 }
 
+fn default_login_timeout_secs() -> u64 {
+    300
+}
+
 fn default_data_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
@@ -100,8 +115,12 @@ impl Default for Config {
             },
             browser: BrowserConfig {
                 cdp_url: default_cdp_url(),
+                cdp_urls: None,
                 max_pool_size: default_max_pool_size(),
                 page_timeout_secs: default_page_timeout_secs(),
+                novnc_base_url: None,
+                novnc_ports: None,
+                login_timeout_secs: default_login_timeout_secs(),
             },
             storage: StorageConfig {
                 data_dir: default_data_dir(),
@@ -140,11 +159,25 @@ impl Config {
         if let Ok(url) = std::env::var("IMAUTH_CDP_URL") {
             self.browser.cdp_url = url;
         }
+        if let Ok(urls) = std::env::var("IMAUTH_CDP_URLS") {
+            self.browser.cdp_urls = Some(urls);
+        }
         if let Ok(key) = std::env::var("IMAUTH_ENCRYPTION_KEY") {
             self.security.encryption_key = Some(key);
         }
         if let Ok(dir) = std::env::var("IMAUTH_DATA_DIR") {
             self.storage.data_dir = PathBuf::from(dir);
+        }
+        if let Ok(url) = std::env::var("IMAUTH_NOVNC_BASE_URL") {
+            self.browser.novnc_base_url = Some(url);
+        }
+        if let Ok(ports) = std::env::var("IMAUTH_NOVNC_PORTS") {
+            self.browser.novnc_ports = Some(ports);
+        }
+        if let Ok(secs) = std::env::var("IMAUTH_LOGIN_TIMEOUT_SECS") {
+            if let Ok(s) = secs.parse() {
+                self.browser.login_timeout_secs = s;
+            }
         }
 
         if self.security.encryption_key.as_deref() == Some("") {
@@ -207,12 +240,45 @@ impl Config {
         &self.browser.cdp_url
     }
 
+    /// Returns parsed CDP URLs for pooled Chrome instances.
+    /// Falls back to single `cdp_url` if `cdp_urls` is not set.
+    pub fn cdp_urls(&self) -> Vec<String> {
+        if let Some(ref urls) = self.browser.cdp_urls {
+            urls.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        } else {
+            vec![self.browser.cdp_url.clone()]
+        }
+    }
+
+    /// Returns parsed noVNC ports, one per Chrome instance.
+    pub fn novnc_ports(&self) -> Vec<u16> {
+        if let Some(ref ports) = self.browser.novnc_ports {
+            ports
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect()
+        } else {
+            vec![]
+        }
+    }
+
     pub fn max_pool_size(&self) -> usize {
         self.browser.max_pool_size
     }
 
     pub fn page_timeout_secs(&self) -> u64 {
         self.browser.page_timeout_secs
+    }
+
+    pub fn novnc_base_url(&self) -> Option<String> {
+        self.browser.novnc_base_url.clone()
+    }
+
+    pub fn login_timeout_secs(&self) -> u64 {
+        self.browser.login_timeout_secs
     }
 
     pub fn db_path(&self) -> PathBuf {

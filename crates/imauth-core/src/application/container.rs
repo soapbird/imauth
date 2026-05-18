@@ -1,10 +1,9 @@
 use crate::adapters::aes_gcm::AesGcmEncryptionService;
-use crate::adapters::chromiumoxide::{ChromiumOxideBrowserFactory, InstagramPlatformDriver};
+use crate::adapters::chromiumoxide::PooledBrowserFactory;
 use crate::adapters::fs::FsSnapshotSink;
 use crate::adapters::sqlite::{
     self, SqliteCookieRepository, SqliteCredentialRepository, SqliteSessionRepository,
 };
-use crate::application::active_session::ActiveSessionRegistry;
 use crate::application::cookies::{
     ExportNetscapeUseCase, GetConnectionStatusUseCase, GetCookiesUseCase, UpdateCookiesUseCase,
     ValidateSessionUseCase,
@@ -14,16 +13,14 @@ use crate::application::credentials::{
 };
 use crate::application::login::LoginUseCase;
 use crate::application::status::{CancelSessionUseCase, GetStatusUseCase};
-use crate::application::submit_2fa::Submit2FaUseCase;
 use crate::config::Config;
-use crate::domain::Platform;
-use crate::ports::browser::{BrowserSessionFactory, PlatformDriver};
+use crate::ports::browser::BrowserSessionFactory;
 use crate::ports::encryption::EncryptionService;
 use crate::ports::repository::{CookieRepository, CredentialRepository, SessionRepository};
 use crate::ports::snapshot::SnapshotSink;
 use crate::Result;
-use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Composition root. Wires concrete adapters into use cases. `imauth-server` and
 /// future delivery layers depend on this and nothing else from `imauth-core`'s
@@ -31,7 +28,6 @@ use std::sync::Arc;
 pub struct AppContainer {
     pub config: Config,
     pub login: Arc<LoginUseCase>,
-    pub submit_2fa: Arc<Submit2FaUseCase>,
     pub get_cookies: Arc<GetCookiesUseCase>,
     pub update_cookies: Arc<UpdateCookiesUseCase>,
     pub export_netscape: Arc<ExportNetscapeUseCase>,
@@ -61,38 +57,22 @@ impl AppContainer {
             encryption.clone(),
         ));
 
-        let browser: Arc<dyn BrowserSessionFactory> = Arc::new(ChromiumOxideBrowserFactory::new(
-            config.cdp_url().to_string(),
-            config.max_pool_size(),
+        let novnc_base_url = config.novnc_base_url().unwrap_or_default();
+        let novnc_ports = config.novnc_ports();
+        let cdp_urls = config.cdp_urls();
+        let browser: Arc<dyn BrowserSessionFactory> = Arc::new(PooledBrowserFactory::new(
+            cdp_urls,
+            &novnc_base_url,
+            &novnc_ports,
         ));
 
-        let mut drivers: HashMap<Platform, Arc<dyn PlatformDriver>> = HashMap::new();
-        let instagram_driver = Arc::new(InstagramPlatformDriver::new());
-        drivers.insert(Platform::Instagram, instagram_driver.clone());
-        drivers.insert(Platform::Threads, instagram_driver);
-
-        let snapshot: Arc<dyn SnapshotSink> = Arc::new(FsSnapshotSink::new(config.snapshot_dir()));
-
-        // One process-wide registry binds session_id -> (browser, page) for
-        // the lifetime of a 2FA/captcha-required login. Login registers,
-        // Submit2Fa takes. Without this, Submit2Fa would acquire any browser
-        // from the pool and type 2FA codes into the wrong tab.
-        let active = Arc::new(ActiveSessionRegistry::new());
+        let _snapshot: Arc<dyn SnapshotSink> = Arc::new(FsSnapshotSink::new(config.snapshot_dir()));
 
         let login = Arc::new(LoginUseCase::new(
             sessions.clone(),
             cookies.clone(),
             browser.clone(),
-            active.clone(),
-            drivers.clone(),
-            snapshot.clone(),
-        ));
-        let submit_2fa = Arc::new(Submit2FaUseCase::new(
-            sessions.clone(),
-            cookies.clone(),
-            active.clone(),
-            drivers.clone(),
-            snapshot.clone(),
+            Duration::from_secs(config.login_timeout_secs()),
         ));
         let get_cookies = Arc::new(GetCookiesUseCase::new(cookies.clone()));
         let update_cookies = Arc::new(UpdateCookiesUseCase::new(cookies.clone()));
@@ -108,7 +88,6 @@ impl AppContainer {
         Ok(Self {
             config,
             login,
-            submit_2fa,
             get_cookies,
             update_cookies,
             export_netscape,
