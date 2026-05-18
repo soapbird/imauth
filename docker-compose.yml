@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile.chrome
     shm_size: '2gb'
+    restart: unless-stopped
     environment:
       - DISPLAY_NUM=99
       - VNC_PASSWORD=${VNC_PASSWORD:-imauth}
@@ -21,6 +22,7 @@ services:
       context: .
       dockerfile: Dockerfile.chrome
     shm_size: '2gb'
+    restart: unless-stopped
     environment:
       - DISPLAY_NUM=100
       - VNC_PASSWORD=${VNC_PASSWORD:-imauth}
@@ -37,6 +39,7 @@ services:
       context: .
       dockerfile: Dockerfile.chrome
     shm_size: '2gb'
+    restart: unless-stopped
     environment:
       - DISPLAY_NUM=101
       - VNC_PASSWORD=${VNC_PASSWORD:-imauth}
