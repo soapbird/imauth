@@ -4,6 +4,16 @@ fn main() {
 
     // Debug: verify proto dir exists
     println!("cargo:warning=proto_dir = {proto_dir}");
+    let which_protoc = std::process::Command::new("which").arg("protoc").output();
+    match which_protoc {
+        Ok(out) => println!("cargo:warning=which protoc = {}", String::from_utf8_lossy(&out.stdout).trim()),
+        Err(e) => println!("cargo:warning=which protoc FAILED: {e}"),
+    }
+    if let Ok(protoc_ver) = std::process::Command::new("protoc").arg("--version").output() {
+        println!("cargo:warning=protoc --version = {}", String::from_utf8_lossy(&protoc_ver.stdout).trim());
+    } else {
+        println!("cargo:warning=protoc --version FAILED");
+    }
     let proto_path = std::path::Path::new(&proto_dir);
     if !proto_path.exists() {
         panic!("proto dir does not exist: {proto_dir}");
