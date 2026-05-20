@@ -19,6 +19,11 @@ fn main() {
         }
     }
 
+    // Docker builds start from a clean checkout where the generated output
+    // directory may not exist. tonic/prost does not create the full out_dir
+    // path for us, so ensure it is present before invoking protoc.
+    std::fs::create_dir_all("src/generated").expect("failed to create generated proto output dir");
+
     tonic_build::configure()
         .out_dir("src/generated")
         .compile_protos(&protos, &[&proto_dir])
