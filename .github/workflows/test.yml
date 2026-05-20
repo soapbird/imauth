@@ -29,6 +29,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace
+        env:
+          PROTOC: /usr/bin/protoc
       - run: cargo test --workspace
         env:
           PG_DATABASE_URL: postgres://imauth:imauth@localhost:5432/imauth
