@@ -71,7 +71,7 @@ def test_async_login_streams_events():
     async def run():
         events = []
         with patch.object(ac.auth_pb2_grpc, "AuthServiceStub", return_value=fake_stub):
-            async for evt in c.login(Platform.INSTAGRAM, "u", "p"):
+            async for evt in c.login(Platform.INSTAGRAM):
                 events.append(evt)
         return events
 
@@ -80,7 +80,6 @@ def test_async_login_streams_events():
     assert events[0].status == AuthStatus.CONNECTED
     args, _ = fake_stub.Login.call_args
     assert args[0].platform == 1
-    assert args[0].username == "u"
 
 
 def test_async_get_cookies():

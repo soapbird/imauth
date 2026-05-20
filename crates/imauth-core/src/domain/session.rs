@@ -6,9 +6,7 @@ pub enum SessionState {
     Idle,
     Loading,
     Authenticating,
-    NeedsCreds,
-    Needs2Fa,
-    NeedsCaptcha,
+    WaitingForUser,
     Connected,
     Failed,
 }
@@ -19,9 +17,7 @@ impl SessionState {
             SessionState::Idle => "idle",
             SessionState::Loading => "loading",
             SessionState::Authenticating => "authenticating",
-            SessionState::NeedsCreds => "needs_creds",
-            SessionState::Needs2Fa => "needs_2fa",
-            SessionState::NeedsCaptcha => "needs_captcha",
+            SessionState::WaitingForUser => "waiting_for_user",
             SessionState::Connected => "connected",
             SessionState::Failed => "failed",
         }
@@ -41,9 +37,7 @@ impl std::str::FromStr for SessionState {
         Ok(match s {
             "loading" => SessionState::Loading,
             "authenticating" => SessionState::Authenticating,
-            "needs_creds" => SessionState::NeedsCreds,
-            "needs_2fa" => SessionState::Needs2Fa,
-            "needs_captcha" => SessionState::NeedsCaptcha,
+            "waiting_for_user" => SessionState::WaitingForUser,
             "connected" => SessionState::Connected,
             "failed" => SessionState::Failed,
             _ => SessionState::Idle,
@@ -93,14 +87,9 @@ impl Session {
         self.state = state;
         self.message = message;
         self.updated_at = Utc::now();
-        self.requires_input = matches!(
-            state,
-            SessionState::NeedsCreds | SessionState::Needs2Fa | SessionState::NeedsCaptcha
-        );
+        self.requires_input = matches!(state, SessionState::WaitingForUser);
         self.input_type = match state {
-            SessionState::Needs2Fa => Some("2fa_code".to_string()),
-            SessionState::NeedsCaptcha => Some("captcha".to_string()),
-            SessionState::NeedsCreds => Some("creds".to_string()),
+            SessionState::WaitingForUser => Some("viewer_url".to_string()),
             _ => None,
         };
     }
@@ -124,35 +113,19 @@ mod tests {
     }
 
     #[test]
-    fn transition_to_needs_creds_sets_creds_input_type() {
+    fn transition_to_waiting_for_user_sets_viewer_url_input_type() {
         let mut s = session();
-        s.transition(SessionState::NeedsCreds, Some("need creds".into()));
-        assert_eq!(s.state, SessionState::NeedsCreds);
+        s.transition(SessionState::WaitingForUser, Some("Log in via browser".into()));
+        assert_eq!(s.state, SessionState::WaitingForUser);
         assert!(s.requires_input);
-        assert_eq!(s.input_type.as_deref(), Some("creds"));
-        assert_eq!(s.message.as_deref(), Some("need creds"));
-    }
-
-    #[test]
-    fn transition_to_needs_2fa_sets_2fa_code_input_type() {
-        let mut s = session();
-        s.transition(SessionState::Needs2Fa, None);
-        assert!(s.requires_input);
-        assert_eq!(s.input_type.as_deref(), Some("2fa_code"));
-    }
-
-    #[test]
-    fn transition_to_needs_captcha_sets_captcha_input_type() {
-        let mut s = session();
-        s.transition(SessionState::NeedsCaptcha, None);
-        assert!(s.requires_input);
-        assert_eq!(s.input_type.as_deref(), Some("captcha"));
+        assert_eq!(s.input_type.as_deref(), Some("viewer_url"));
+        assert_eq!(s.message.as_deref(), Some("Log in via browser"));
     }
 
     #[test]
     fn transition_to_connected_clears_requires_input_and_input_type() {
         let mut s = session();
-        s.transition(SessionState::Needs2Fa, None);
+        s.transition(SessionState::WaitingForUser, None);
         s.transition(SessionState::Connected, Some("ok".into()));
         assert_eq!(s.state, SessionState::Connected);
         assert!(!s.requires_input);
@@ -169,8 +142,6 @@ mod tests {
 
     #[test]
     fn display_renders_snake_case() {
-        assert_eq!(SessionState::NeedsCreds.to_string(), "needs_creds");
-        assert_eq!(SessionState::Needs2Fa.to_string(), "needs_2fa");
-        assert_eq!(SessionState::NeedsCaptcha.to_string(), "needs_captcha");
+        assert_eq!(SessionState::WaitingForUser.to_string(), "waiting_for_user");
     }
 }

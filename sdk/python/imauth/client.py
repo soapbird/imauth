@@ -12,7 +12,6 @@ from imauth.models import AuthEvent, AuthStatus, Cookie, CredentialInfo, Platfor
 from imauth._converters import (
     api_key_metadata,
     auth_event_from_proto,
-    auth_response_to_event,
     cookie_from_proto,
     cookie_to_proto,
     platform_from_proto,
@@ -27,7 +26,6 @@ _platform_from_proto = platform_from_proto
 _cookie_from_proto = cookie_from_proto
 _cookie_to_proto = cookie_to_proto
 _auth_event_from_proto = auth_event_from_proto
-_auth_response_to_event = auth_response_to_event
 
 
 class ImauthClient:
@@ -39,7 +37,7 @@ class ImauthClient:
 
     def __init__(
         self,
-        server_address: str = "localhost:50051",
+        server_address: str = "localhost:6100",
         api_key: Optional[str] = None,
     ):
         self.server_address = server_address
@@ -54,32 +52,14 @@ class ImauthClient:
     def login(
         self,
         platform: Platform,
-        username: str,
-        password: str,
     ) -> Iterator[AuthEvent]:
-        """Start login and yield auth events."""
+        """Start login (user-driven via browser) and yield auth events."""
         stub = auth_pb2_grpc.AuthServiceStub(self._channel)
         req = auth_pb2.LoginRequest(
             platform=platform_to_proto(platform),
-            username=username,
-            password=password,
         )
         for event in stub.Login(req, metadata=self._meta()):
             yield auth_event_from_proto(event)
-
-    def submit_2fa(self, session_id: str, code: str) -> AuthEvent:
-        """Submit 2FA code for an ongoing session."""
-        stub = auth_pb2_grpc.AuthServiceStub(self._channel)
-        req = auth_pb2.Submit2FARequest(session_id=session_id, code=code)
-        resp = stub.Submit2FA(req, metadata=self._meta())
-        return auth_response_to_event(resp)
-
-    def submit_captcha(self, session_id: str, solution: str) -> AuthEvent:
-        """Submit a captcha solution for an ongoing session."""
-        stub = auth_pb2_grpc.AuthServiceStub(self._channel)
-        req = auth_pb2.SubmitCaptchaRequest(session_id=session_id, solution=solution)
-        resp = stub.SubmitCaptcha(req, metadata=self._meta())
-        return auth_response_to_event(resp)
 
     def get_status(self, session_id: str) -> Optional[AuthEvent]:
         """Get current status of a session. Returns None if the session is unknown."""

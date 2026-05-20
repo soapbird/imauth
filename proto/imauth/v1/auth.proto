@@ -4,14 +4,9 @@ package imauth.v1;
 import "imauth/v1/common.proto";
 
 service AuthService {
-  // 로그인 시작 (동기식 - 결과 스트리밍)
+  // Open a browser for the given platform and wait for the user to log in.
+  // Streams AuthEvents: Loading → WaitingForUser (with viewer_url) → Connected.
   rpc Login(LoginRequest) returns (stream AuthEvent);
-
-  // 2FA 코드 제출
-  rpc Submit2FA(Submit2FARequest) returns (AuthResponse);
-
-  // 캡차 해결 제출
-  rpc SubmitCaptcha(SubmitCaptchaRequest) returns (AuthResponse);
 
   // 현재 세션 상태 조회
   rpc GetStatus(StatusRequest) returns (AuthStatusResponse);
@@ -22,8 +17,8 @@ service AuthService {
 
 message LoginRequest {
   Platform platform = 1;
-  string username = 2;
-  string password = 3;
+  // username (tag 2) and password (tag 3) removed — login is now user-driven.
+  reserved 2, 3;
 }
 
 message AuthEvent {
@@ -31,19 +26,10 @@ message AuthEvent {
   AuthStatus status = 2;
   string message = 3;
   bool requires_input = 4;
-  string input_type = 5;  // "2fa_code", "captcha", "creds"
+  string input_type = 5;   // "viewer_url"
   repeated Cookie cookies = 6;
-  bytes screenshot = 7;   // base64 인코딩 스크린샷 (interactive 모드)
-}
-
-message Submit2FARequest {
-  string session_id = 1;
-  string code = 2;
-}
-
-message SubmitCaptchaRequest {
-  string session_id = 1;
-  string solution = 2;
+  bytes screenshot = 7;
+  string viewer_url = 8;   // noVNC URL for user to interact with the browser
 }
 
 message AuthResponse {

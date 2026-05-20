@@ -3,7 +3,7 @@ use imauth_proto::generated::v1::{
     auth_service_client::AuthServiceClient, credential_service_client::CredentialServiceClient,
     session_service_client::SessionServiceClient, AuthStatus, DeleteCredentialRequest,
     ExportRequest, GetCookiesRequest, GetCredentialRequest, LoginRequest, SaveCredentialRequest,
-    StatusRequest, Submit2FaRequest,
+    StatusRequest,
 };
 use std::io::{self, Write};
 use tonic::transport::Channel;
@@ -12,7 +12,7 @@ use tonic::transport::Channel;
 #[command(name = "imauth")]
 #[command(about = "imauth CLI — social auth manager")]
 struct Cli {
-    #[arg(short, long, default_value = "http://localhost:50051")]
+    #[arg(short, long, default_value = "http://localhost:6100")]
     server: String,
 
     #[arg(short = 'k', long, env = "IMAUTH_API_KEY")]
@@ -24,22 +24,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Log in to a platform
+    /// Log in to a platform (opens browser for user-driven login)
     Login {
         #[arg(short, long)]
         platform: String,
-        #[arg(short, long)]
-        username: String,
-        #[arg(short = 'w', long)]
-        password: String,
-        #[arg(
-            long = "2fa",
-            visible_alias = "twofa",
-            value_name = "CODE",
-            num_args = 0..=1,
-            default_missing_value = ""
-        )]
-        twofa: Option<Option<String>>,
     },
     /// Check session status
     Status {
@@ -91,19 +79,11 @@ fn platform_to_proto(platform: &str) -> Result<i32, String> {
     match platform.to_lowercase().as_str() {
         "instagram" => Ok(1),
         "threads" => Ok(2),
+        "naver" => Ok(3),
         other => Err(format!(
-            "Unknown platform '{other}'. Expected one of: instagram, threads"
+            "Unknown platform '{other}'. Expected one of: instagram, threads, naver"
         )),
     }
-}
-
-fn read_2fa_code() -> io::Result<String> {
-    print!("Enter 2FA code: ");
-    io::stdout().flush()?;
-
-    let mut code = String::new();
-    io::stdin().read_line(&mut code)?;
-    Ok(normalize_2fa_code(&code))
 }
 
 fn with_api_key<T>(req: tonic::Request<T>, key: &Option<String>) -> tonic::Request<T> {
@@ -119,17 +99,6 @@ fn with_api_key<T>(req: tonic::Request<T>, key: &Option<String>) -> tonic::Reque
     req
 }
 
-fn normalize_2fa_code(raw: &str) -> String {
-    let trimmed = raw.trim();
-    let digits: String = trimmed.chars().filter(|c| c.is_ascii_digit()).collect();
-
-    match digits.len() {
-        6 => digits,
-        len if len > 6 => digits[len - 6..].to_string(),
-        _ => trimmed.to_string(),
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
@@ -139,19 +108,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let channel = Channel::from_shared(cli.server.clone())?.connect().await?;
 
     match cli.command {
-        Commands::Login {
-            platform,
-            username,
-            password,
-            twofa,
-        } => {
+        Commands::Login { platform } => {
             let mut client = AuthServiceClient::new(channel.clone());
 
             let request = with_api_key(
                 tonic::Request::new(LoginRequest {
                     platform: platform_to_proto(&platform)?,
-                    username,
-                    password,
                 }),
                 &cli.api_key,
             );
@@ -162,48 +124,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Status: {:?}", event.status);
                 println!("Message: {}", event.message);
 
-                if event.requires_input {
-                    match event.input_type.as_str() {
-                        "2fa_code" => {
-                            let code = match &twofa {
-                                Some(Some(code)) if !code.is_empty() => {
-                                    Some(normalize_2fa_code(code))
-                                }
-                                Some(_) => Some(read_2fa_code()?),
-                                None => None,
-                            };
-
-                            if let Some(code) = code {
-                                let mut client = AuthServiceClient::new(channel.clone());
-                                let resp = client
-                                    .submit2_fa(with_api_key(
-                                        tonic::Request::new(Submit2FaRequest {
-                                            session_id: event.session_id.clone(),
-                                            code,
-                                        }),
-                                        &cli.api_key,
-                                    ))
-                                    .await?;
-                                let resp = resp.into_inner();
-                                println!(
-                                    "2FA response: success={} session_id={} message={} cookies={}",
-                                    resp.success,
-                                    resp.session_id,
-                                    resp.message,
-                                    resp.cookies.len()
-                                );
-                                break;
-                            } else {
-                                println!("2FA required but no code provided. Use --2fa <CODE> or --2fa to enter it interactively.");
-                                break;
-                            }
-                        }
-                        "captcha" => {
-                            println!("Captcha required — not yet supported in CLI");
-                            break;
-                        }
-                        _ => {}
-                    }
+                if !event.viewer_url.is_empty() {
+                    println!();
+                    println!("Open this URL in your browser to log in:");
+                    println!("  {}", event.viewer_url);
+                    println!();
+                    print!("Waiting for login... ");
+                    io::stdout().flush()?;
                 }
 
                 match AuthStatus::try_from(event.status) {
@@ -320,36 +247,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{platform_to_proto, normalize_2fa_code, with_api_key};
-
-    #[test]
-    fn normalize_2fa_code_keeps_six_digits_including_leading_zero() {
-        assert_eq!(normalize_2fa_code(" 007594\n"), "007594");
-    }
-
-    #[test]
-    fn normalize_2fa_code_uses_last_six_digits_when_terminal_input_was_prefixed() {
-        assert_eq!(normalize_2fa_code("746736362"), "736362");
-    }
-
-    #[test]
-    fn normalize_2fa_code_strips_separators() {
-        assert_eq!(normalize_2fa_code("123 456"), "123456");
-    }
+    use super::{platform_to_proto, with_api_key};
 
     #[test]
     fn platform_to_proto_accepts_known_platforms_case_insensitive() {
         assert_eq!(platform_to_proto("instagram").unwrap(), 1);
         assert_eq!(platform_to_proto("Instagram").unwrap(), 1);
         assert_eq!(platform_to_proto("THREADS").unwrap(), 2);
+        assert_eq!(platform_to_proto("naver").unwrap(), 3);
+        assert_eq!(platform_to_proto("NAVER").unwrap(), 3);
     }
 
     #[test]
     fn platform_to_proto_rejects_unknown_platform_with_helpful_message() {
         let err = platform_to_proto("facebook").unwrap_err();
         assert!(err.contains("facebook"));
-        assert!(err.contains("instagram"));
-        assert!(err.contains("threads"));
+        assert!(err.contains("naver"));
     }
 
     #[test]

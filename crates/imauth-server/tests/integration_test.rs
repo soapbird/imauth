@@ -16,13 +16,10 @@ use imauth_core::{
         credentials::{DeleteCredentialUseCase, GetCredentialUseCase, SaveCredentialUseCase},
         login::LoginUseCase,
         status::{CancelSessionUseCase, GetStatusUseCase},
-        submit_2fa::Submit2FaUseCase,
         AppContainer,
     },
     config::Config,
-    domain::{session::Cookie, Platform},
-    ports::browser::{BrowserSession, BrowserSessionFactory, PageDriver, PlatformDriver},
-    ports::snapshot::SnapshotSink,
+    ports::browser::{BrowserSessionFactory, BrowserSession, PageDriver},
 };
 use imauth_proto::generated::v1::{
     credential_service_client::CredentialServiceClient,
@@ -44,6 +41,10 @@ impl BrowserSessionFactory for DummyBrowserFactory {
     async fn acquire(&self) -> imauth_core::Result<Box<dyn BrowserSession>> {
         unimplemented!("dummy browser factory")
     }
+
+    fn viewer_url(&self) -> Option<String> {
+        None
+    }
 }
 
 #[allow(dead_code)]
@@ -57,47 +58,8 @@ impl BrowserSession for DummyBrowserSession {
     async fn existing_pages(&self) -> imauth_core::Result<Vec<Box<dyn PageDriver>>> {
         unimplemented!("dummy browser session")
     }
-}
-
-struct DummyPlatformDriver;
-
-#[async_trait::async_trait]
-impl PlatformDriver for DummyPlatformDriver {
-    async fn login<'a>(
-        &'a self,
-        _page: &'a dyn PageDriver,
-        _platform: Platform,
-        _username: &'a str,
-        _password: &'a str,
-        _session: &'a mut imauth_core::domain::session::Session,
-        _snapshot: &'a dyn SnapshotSink,
-    ) -> imauth_core::Result<Vec<Cookie>> {
-        unimplemented!("dummy platform driver")
-    }
-
-    async fn submit_2fa<'a>(
-        &'a self,
-        _page: &'a dyn PageDriver,
-        _platform: Platform,
-        _code: &'a str,
-        _session: &'a mut imauth_core::domain::session::Session,
-        _snapshot: &'a dyn SnapshotSink,
-    ) -> imauth_core::Result<Vec<Cookie>> {
-        unimplemented!("dummy platform driver")
-    }
-}
-
-struct DummySnapshotSink;
-
-#[async_trait::async_trait]
-impl SnapshotSink for DummySnapshotSink {
-    async fn capture<'a>(
-        &'a self,
-        _session_id: &'a str,
-        _label: &'a str,
-        _html: &'a str,
-        _png: Option<&'a [u8]>,
-    ) {
+    fn viewer_url(&self) -> String {
+        String::new()
     }
 }
 
@@ -111,6 +73,7 @@ async fn test_container() -> AppContainer {
     config.storage.data_dir = temp_dir;
     config.security.encryption_key =
         Some("pZN6lLjwDGIpj/BUWeTFnsB7GUp9bSuwnUcS3gYkQ2A=".to_string());
+    config.server.metrics_port = Some(0);
 
     let pool = init_pool(&config).await.unwrap();
     run_migrations(&pool).await.unwrap();
@@ -127,14 +90,6 @@ async fn test_container() -> AppContainer {
     );
 
     let browser: Arc<dyn BrowserSessionFactory> = Arc::new(DummyBrowserFactory);
-    let mut drivers = std::collections::HashMap::new();
-    drivers.insert(
-        Platform::Instagram,
-        Arc::new(DummyPlatformDriver) as Arc<dyn PlatformDriver>,
-    );
-    let snapshot: Arc<dyn SnapshotSink> = Arc::new(DummySnapshotSink);
-
-    let active = Arc::new(imauth_core::application::active_session::ActiveSessionRegistry::new());
 
     AppContainer {
         config,
@@ -142,16 +97,7 @@ async fn test_container() -> AppContainer {
             sessions.clone(),
             cookies.clone(),
             browser.clone(),
-            active.clone(),
-            drivers.clone(),
-            snapshot.clone(),
-        )),
-        submit_2fa: Arc::new(Submit2FaUseCase::new(
-            sessions.clone(),
-            cookies.clone(),
-            active.clone(),
-            drivers.clone(),
-            snapshot.clone(),
+            std::time::Duration::from_secs(300),
         )),
         get_cookies: Arc::new(GetCookiesUseCase::new(cookies.clone())),
         update_cookies: Arc::new(UpdateCookiesUseCase::new(cookies.clone())),
@@ -177,13 +123,25 @@ async fn start_test_server(container: Arc<AppContainer>, api_key: Option<String>
     // so the test exercises the same constant-time comparison and whitespace
     // handling as the binary. Bypassing them in the test was hiding regressions.
     let key = imauth_server::auth::normalize_api_key(api_key).map(std::sync::Arc::new);
-    let interceptor = imauth_server::auth::auth_interceptor(key);
+    let session_interceptor = imauth_server::auth::auth_interceptor(key.clone());
+    let credential_interceptor = imauth_server::auth::auth_interceptor(key);
+
+    let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+    health_reporter
+        .set_serving::<SessionServiceServer<SessionGrpcService>>()
+        .await;
+    health_reporter
+        .set_serving::<CredentialServiceServer<CredentialGrpcService>>()
+        .await;
 
     tokio::spawn(async move {
         tonic::transport::Server::builder()
-            .layer(tonic::service::interceptor(interceptor))
-            .add_service(SessionServiceServer::new(session))
-            .add_service(CredentialServiceServer::new(credential))
+            .add_service(SessionServiceServer::with_interceptor(session, session_interceptor))
+            .add_service(CredentialServiceServer::with_interceptor(
+                credential,
+                credential_interceptor,
+            ))
+            .add_service(health_service)
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             .await
             .unwrap();
@@ -451,6 +409,29 @@ async fn test_auth_accepts_x_api_key_alt_header() {
     // Should succeed: interceptor falls back to x-api-key when Authorization is absent.
     let resp = client.get_cookies(req).await.unwrap();
     assert!(resp.into_inner().cookies.is_empty());
+}
+
+#[tokio::test]
+async fn test_health_check_returns_serving_without_auth() {
+    let container = Arc::new(test_container().await);
+    let addr = start_test_server(container, Some("test-api-key".to_string())).await;
+
+    let channel = tonic::transport::Channel::from_shared(addr)
+        .unwrap()
+        .connect()
+        .await
+        .unwrap();
+    let mut client = tonic_health::pb::health_client::HealthClient::new(channel);
+    let resp = client
+        .check(tonic_health::pb::HealthCheckRequest {
+            service: "".to_string(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.into_inner().status,
+        tonic_health::pb::health_check_response::ServingStatus::Serving as i32
+    );
 }
 
 #[tokio::test]

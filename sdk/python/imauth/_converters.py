@@ -4,16 +4,14 @@ from imauth.v1 import common_pb2
 from imauth.models import AuthEvent, AuthStatus, Cookie, Platform
 
 
-_PLATFORM_TO_PROTO = {Platform.INSTAGRAM: 1, Platform.THREADS: 2}
-_PROTO_TO_PLATFORM = {1: "instagram", 2: "threads"}
+_PLATFORM_TO_PROTO = {Platform.INSTAGRAM: 1, Platform.THREADS: 2, Platform.NAVER: 3}
+_PROTO_TO_PLATFORM = {1: "instagram", 2: "threads", 3: "naver"}
 
 _STATUS_MAP = {
     common_pb2.AuthStatus.AUTH_STATUS_IDLE: AuthStatus.IDLE,
     common_pb2.AuthStatus.AUTH_STATUS_LOADING: AuthStatus.LOADING,
     common_pb2.AuthStatus.AUTH_STATUS_AUTHENTICATING: AuthStatus.AUTHENTICATING,
-    common_pb2.AuthStatus.AUTH_STATUS_NEEDS_CREDS: AuthStatus.NEEDS_CREDS,
-    common_pb2.AuthStatus.AUTH_STATUS_NEEDS_2FA: AuthStatus.NEEDS_2FA,
-    common_pb2.AuthStatus.AUTH_STATUS_NEEDS_CAPTCHA: AuthStatus.NEEDS_CAPTCHA,
+    common_pb2.AuthStatus.AUTH_STATUS_WAITING_FOR_USER: AuthStatus.WAITING_FOR_USER,
     common_pb2.AuthStatus.AUTH_STATUS_CONNECTED: AuthStatus.CONNECTED,
     common_pb2.AuthStatus.AUTH_STATUS_FAILED: AuthStatus.FAILED,
 }
@@ -61,6 +59,7 @@ def auth_event_from_proto(event) -> AuthEvent:
         input_type=event.input_type,
         cookies=[cookie_from_proto(c) for c in event.cookies],
         screenshot=bytes(event.screenshot),
+        viewer_url=getattr(event, "viewer_url", ""),
     )
 
 

@@ -1,0 +1,3 @@
+[patch.crates-io]
+chromiumoxide_types = { path = "patches/chromiumoxide_types" }
+chromiumoxide = { path = "patches/chromiumoxide" }

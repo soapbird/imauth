@@ -60,54 +60,22 @@ describe('ImauthClient (mocked stubs)', () => {
 
   // ---- login (streaming) ------------------------------------------------
 
-  it('login forwards platform/username/password to AuthService.Login', () => {
+  it('login forwards platform to AuthService.Login', () => {
     const { authFake } = installFakeClients(client);
-    const stream = client.login(Platform.INSTAGRAM, 'alice', 'pw');
+    const stream = client.login(Platform.INSTAGRAM);
 
     expect(authFake.Login).toHaveBeenCalledTimes(1);
     const callArg = authFake.Login.mock.calls[0][0];
     expect(callArg).toEqual({
       platform: Platform.INSTAGRAM,
-      username: 'alice',
-      password: 'pw',
     });
     expect(stream).toBeDefined();
   });
 
-  it('login passes the THREADS platform value', () => {
+  it('login passes the NAVER platform value', () => {
     const { authFake } = installFakeClients(client);
-    client.login(Platform.THREADS, 'u', 'p');
-    expect(authFake.Login.mock.calls[0][0].platform).toBe(Platform.THREADS);
-  });
-
-  // ---- submit2FA -------------------------------------------------------
-
-  it('submit2FA resolves with the response on success', async () => {
-    const { authFake } = installFakeClients(client);
-    authFake.Submit2FA = makeUnaryStub((req) => ({
-      // Server uses snake_case (proto-loader keepCase:true keeps wire format
-      // identical to the .proto field name).
-      resp: { success: true, message: 'ok', session_id: req.session_id },
-    }));
-
-    const resp: any = await client.submit2FA('sess-1', '123456');
-
-    expect(authFake.Submit2FA).toHaveBeenCalledTimes(1);
-    expect(authFake.Submit2FA.mock.calls[0][0]).toEqual({
-      session_id: 'sess-1',
-      code: '123456',
-    });
-    expect(resp.success).toBe(true);
-    expect(resp.session_id).toBe('sess-1');
-  });
-
-  it('submit2FA rejects on gRPC error', async () => {
-    const { authFake } = installFakeClients(client);
-    authFake.Submit2FA = makeUnaryStub(() => ({
-      err: new Error('boom'),
-    }));
-
-    await expect(client.submit2FA('s', 'c')).rejects.toThrow('boom');
+    client.login(Platform.NAVER);
+    expect(authFake.Login.mock.calls[0][0].platform).toBe(Platform.NAVER);
   });
 
   // ---- getCookies ------------------------------------------------------
@@ -238,15 +206,14 @@ describe('Enum + module surface', () => {
     expect(Platform.UNSPECIFIED).toBe(0);
     expect(Platform.INSTAGRAM).toBe(1);
     expect(Platform.THREADS).toBe(2);
+    expect(Platform.NAVER).toBe(3);
   });
 
-  it('AuthStatus covers every state from idle to failed', () => {
+  it('AuthStatus covers every state', () => {
     expect(AuthStatus.IDLE).toBe(1);
     expect(AuthStatus.LOADING).toBe(2);
     expect(AuthStatus.AUTHENTICATING).toBe(3);
-    expect(AuthStatus.NEEDS_CREDS).toBe(4);
-    expect(AuthStatus.NEEDS_2FA).toBe(5);
-    expect(AuthStatus.NEEDS_CAPTCHA).toBe(6);
+    expect(AuthStatus.WAITING_FOR_USER).toBe(4);
     expect(AuthStatus.CONNECTED).toBe(7);
     expect(AuthStatus.FAILED).toBe(8);
   });

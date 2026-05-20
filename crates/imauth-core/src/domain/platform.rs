@@ -4,16 +4,18 @@ use crate::domain::session::Cookie;
 pub enum Platform {
     Instagram,
     Threads,
+    Naver,
 }
 
 impl Platform {
-    pub const ALL: &'static [Platform] = &[Platform::Instagram, Platform::Threads];
+    pub const ALL: &'static [Platform] = &[Platform::Instagram, Platform::Threads, Platform::Naver];
 
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "instagram" => Some(Platform::Instagram),
             "threads" => Some(Platform::Threads),
+            "naver" => Some(Platform::Naver),
             _ => None,
         }
     }
@@ -22,6 +24,14 @@ impl Platform {
         match self {
             Platform::Instagram => "instagram",
             Platform::Threads => "threads",
+            Platform::Naver => "naver",
+        }
+    }
+
+    pub fn login_url(&self) -> &'static str {
+        match self {
+            Platform::Instagram | Platform::Threads => "https://www.instagram.com/accounts/login/",
+            Platform::Naver => "https://nid.naver.com/nidlogin.login",
         }
     }
 
@@ -30,12 +40,14 @@ impl Platform {
             Platform::Instagram | Platform::Threads => {
                 &[".instagram.com", ".threads.net", ".threads.com"]
             }
+            Platform::Naver => &[".naver.com", ".nid.naver.com"],
         }
     }
 
     pub fn session_cookie_name(&self) -> &'static str {
         match self {
             Platform::Instagram | Platform::Threads => "sessionid",
+            Platform::Naver => "NID_AUT",
         }
     }
 
@@ -89,12 +101,58 @@ mod tests {
     fn from_str_is_case_insensitive() {
         assert_eq!(Platform::from_str("Instagram"), Some(Platform::Instagram));
         assert_eq!(Platform::from_str("THREADS"), Some(Platform::Threads));
+        assert_eq!(Platform::from_str("NAVER"), Some(Platform::Naver));
     }
 
     #[test]
     fn from_str_returns_none_for_unknown() {
         assert_eq!(Platform::from_str("twitter"), None);
         assert_eq!(Platform::from_str(""), None);
+    }
+
+    #[test]
+    fn naver_has_correct_cookie_domains() {
+        let domains = Platform::Naver.cookie_domains();
+        assert!(domains.contains(&".naver.com"));
+        assert!(domains.contains(&".nid.naver.com"));
+    }
+
+    #[test]
+    fn naver_session_cookie_name_is_nid_aut() {
+        assert_eq!(Platform::Naver.session_cookie_name(), "NID_AUT");
+    }
+
+    #[test]
+    fn naver_login_url() {
+        assert_eq!(
+            Platform::Naver.login_url(),
+            "https://nid.naver.com/nidlogin.login"
+        );
+    }
+
+    #[test]
+    fn naver_filter_cookies_keeps_matching_domains() {
+        let cookies = vec![
+            cookie("NID_AUT", ".naver.com"),
+            cookie("foo", "example.com"),
+            cookie("NID_SES", ".nid.naver.com"),
+        ];
+        let kept = Platform::Naver.filter_cookies(cookies);
+        assert_eq!(kept.len(), 2);
+        assert!(kept.iter().any(|c| c.name == "NID_AUT"));
+        assert!(kept.iter().any(|c| c.name == "NID_SES"));
+    }
+
+    #[test]
+    fn naver_has_session_cookie_true_when_present() {
+        let cookies = vec![cookie("NID_AUT", ".naver.com")];
+        assert!(Platform::Naver.has_session_cookie(&cookies));
+    }
+
+    #[test]
+    fn naver_has_session_cookie_false_for_wrong_domain() {
+        let cookies = vec![cookie("NID_AUT", ".example.com")];
+        assert!(!Platform::Naver.has_session_cookie(&cookies));
     }
 
     #[test]

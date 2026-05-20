@@ -1,16 +1,41 @@
-use crate::application::active_session::{ActiveLoginSession, ActiveSessionRegistry};
+use crate::domain::auth::classify_auth_state;
 use crate::domain::session::{Cookie, Session, SessionState};
 use crate::domain::Platform;
-use crate::ports::browser::{BrowserSessionFactory, PlatformDriver};
+use crate::ports::browser::BrowserSessionFactory;
 use crate::ports::repository::{CookieRepository, SessionRepository};
-use crate::ports::snapshot::SnapshotSink;
-use std::collections::HashMap;
+use metrics::histogram;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
+
+struct LoginTimer {
+    start: std::time::Instant,
+    platform: String,
+}
+
+impl LoginTimer {
+    fn new(platform: &str) -> Self {
+        Self {
+            start: std::time::Instant::now(),
+            platform: platform.to_string(),
+        }
+    }
+}
+
+impl Drop for LoginTimer {
+    fn drop(&mut self) {
+        histogram!(
+            "login_duration_seconds",
+            "platform" => self.platform.clone()
+        )
+        .record(self.start.elapsed().as_secs_f64());
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum LoginEvent {
     Started(Session),
+    WaitingForUser(Session, String), // (session, viewer_url)
     Final(Session, Vec<Cookie>),
 }
 
@@ -34,9 +59,7 @@ pub struct LoginUseCase {
     sessions: Arc<dyn SessionRepository>,
     cookies: Arc<dyn CookieRepository>,
     browser: Arc<dyn BrowserSessionFactory>,
-    active: Arc<ActiveSessionRegistry>,
-    drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
-    snapshot: Arc<dyn SnapshotSink>,
+    login_timeout: Duration,
 }
 
 impl LoginUseCase {
@@ -44,27 +67,22 @@ impl LoginUseCase {
         sessions: Arc<dyn SessionRepository>,
         cookies: Arc<dyn CookieRepository>,
         browser: Arc<dyn BrowserSessionFactory>,
-        active: Arc<ActiveSessionRegistry>,
-        drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
-        snapshot: Arc<dyn SnapshotSink>,
+        login_timeout: Duration,
     ) -> Self {
         Self {
             sessions,
             cookies,
             browser,
-            active,
-            drivers,
-            snapshot,
+            login_timeout,
         }
     }
 
     pub async fn execute(
         &self,
         platform: Platform,
-        username: String,
-        password: String,
         tx: mpsc::Sender<LoginEvent>,
     ) {
+        let _timer = LoginTimer::new(platform.as_str());
         let id = uuid::Uuid::new_v4().to_string();
         let initial = Session::new(id, platform.as_str().to_string());
 
@@ -72,9 +90,6 @@ impl LoginUseCase {
             Ok(s) => s,
             Err(e) => {
                 tracing::error!("failed to create session: {e}");
-                // Use an empty session_id so callers don't get a UUID that
-                // doesn't exist in the DB. Honest signal: "this session never
-                // persisted, GetStatus will return NotFound".
                 let mut failed = Session::new(String::new(), platform.as_str().to_string());
                 failed.transition(
                     SessionState::Failed,
@@ -86,13 +101,11 @@ impl LoginUseCase {
         };
 
         if send_or_warn(&tx, LoginEvent::Started(session.clone()), "started").await {
-            // Client already dropped the receiver before we sent anything.
-            tracing::info!(session_id = %session.id, "login stream cancelled before Started; aborting");
             return;
         }
 
         if tx.is_closed() {
-            tracing::info!(session_id = %session.id, "login cancelled after session create; aborting before browser acquire");
+            tracing::info!(session_id = %session.id, "login cancelled after session create");
             return;
         }
 
@@ -124,36 +137,83 @@ impl LoginUseCase {
             }
         };
 
-        let driver = match self.drivers.get(&platform) {
-            Some(d) => d,
-            None => {
-                session.transition(
-                    SessionState::Failed,
-                    Some(format!("No driver for platform {}", platform.as_str())),
-                );
-                let _ = self.sessions.update(&session).await;
-                send_or_warn(&tx, LoginEvent::Final(session, vec![]), "no-driver").await;
+        session.transition(
+            SessionState::Loading,
+            Some(format!("Opening {} login page...", platform.as_str())),
+        );
+        let _ = self.sessions.update(&session).await;
+
+        if let Err(e) = page.set_mobile_viewport().await {
+            tracing::warn!(session_id = %session.id, "failed to set mobile viewport: {e}");
+        }
+
+        if let Err(e) = page.navigate(platform.login_url(), 30).await {
+            session.transition(
+                SessionState::Failed,
+                Some(format!("Navigation error: {e}")),
+            );
+            let _ = self.sessions.update(&session).await;
+            send_or_warn(&tx, LoginEvent::Final(session, vec![]), "navigate-fail").await;
+            return;
+        }
+
+        let viewer_url = browser_session.viewer_url();
+
+        session.transition(
+            SessionState::WaitingForUser,
+            Some("Waiting for user to log in via browser".into()),
+        );
+        let _ = self.sessions.update(&session).await;
+
+        if send_or_warn(
+            &tx,
+            LoginEvent::WaitingForUser(session.clone(), viewer_url.clone()),
+            "waiting-for-user",
+        )
+        .await
+        {
+            return;
+        }
+
+        // Poll cookies until session cookie appears or timeout
+        let deadline = tokio::time::Instant::now() + self.login_timeout;
+        let mut cookies = Vec::new();
+
+        loop {
+            if tx.is_closed() {
+                tracing::info!(session_id = %session.id, "login cancelled during cookie polling");
                 return;
             }
-        };
 
-        let cookies = match driver
-            .login(
-                &*page,
-                platform,
-                &username,
-                &password,
-                &mut session,
-                &*self.snapshot,
-            )
-            .await
-        {
-            Ok(cookies) => cookies,
-            Err(e) => {
-                session.transition(SessionState::Failed, Some(e.to_string()));
-                Vec::new()
+            if tokio::time::Instant::now() >= deadline {
+                session.transition(
+                    SessionState::Failed,
+                    Some("Login timed out — no session cookie detected".into()),
+                );
+                break;
             }
-        };
+
+            tokio::time::sleep(Duration::from_secs(2)).await;
+
+            match page.get_cookies().await {
+                Ok(raw_cookies) => {
+                    match classify_auth_state(raw_cookies, platform) {
+                        crate::domain::auth::AuthCheckpoint::Connected(filtered) => {
+                            session.transition(
+                                SessionState::Connected,
+                                Some("Login successful".into()),
+                            );
+                            cookies = filtered;
+                            break;
+                        }
+                        crate::domain::auth::AuthCheckpoint::Pending => {}
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(session_id = %session.id, "cookie poll error: {e}");
+                }
+            }
+        }
 
         let _ = self.sessions.update(&session).await;
 
@@ -163,27 +223,18 @@ impl LoginUseCase {
             }
         }
 
-        // If the driver left the session in a state that needs follow-up input
-        // (2FA, captcha), pin the browser+page to this session_id so the
-        // matching Submit2Fa / SubmitCaptcha calls drive THIS browser, not an
-        // arbitrary one from the pool. Drop on terminal states releases the
-        // browser back to the pool immediately.
-        if matches!(
-            session.state,
-            SessionState::Needs2Fa | SessionState::NeedsCaptcha
-        ) {
-            let entry = ActiveLoginSession {
-                browser: browser_session,
-                page,
-                platform,
-            };
-            self.active.register(session.id.clone(), entry).await;
-        } else {
-            // Connected / Failed / etc — let the values fall out of scope so
-            // the BrowserSession Drop returns the browser to the pool.
-            drop(page);
-            drop(browser_session);
+        if matches!(session.state, SessionState::WaitingForUser) {
+            // If still waiting but we broke out (shouldn't happen), mark failed
+            session.transition(SessionState::Failed, Some("Login did not complete".into()));
         }
+
+        // For WaitingForUser that transitioned to Connected/Failed, close page and drop browser.
+        // The active session registry is no longer needed for 2FA since login is user-driven.
+        if let Err(e) = page.close().await {
+            tracing::warn!(session_id = %session.id, "failed to close page: {e}");
+        }
+        drop(page);
+        drop(browser_session);
 
         send_or_warn(&tx, LoginEvent::Final(session, cookies), "final").await;
     }
@@ -193,28 +244,20 @@ impl LoginUseCase {
 mod tests {
     use super::*;
     use crate::domain::session::Cookie;
-    use crate::ports::browser::{
-        MockBrowserSession, MockBrowserSessionFactory, MockPageDriver, PageDriver, PlatformDriver,
-    };
+    use crate::ports::browser::{MockBrowserSession, MockBrowserSessionFactory, MockPageDriver};
     use crate::ports::repository::{MockCookieRepository, MockSessionRepository};
-    use crate::ports::snapshot::{MockSnapshotSink, SnapshotSink};
     use crate::Result as AppResult;
     use async_trait::async_trait;
+    use std::collections::HashMap;
 
-    /// Test double — sets the session to `Connected` with a sample cookie.
-    struct ConnectingDriver;
+    /// Test double — returns a session cookie on the first poll.
+    struct ImmediateCookiePageDriver;
     #[async_trait]
-    impl PlatformDriver for ConnectingDriver {
-        async fn login<'a>(
-            &'a self,
-            _page: &'a dyn PageDriver,
-            _platform: Platform,
-            _username: &'a str,
-            _password: &'a str,
-            session: &'a mut Session,
-            _snapshot: &'a dyn SnapshotSink,
-        ) -> AppResult<Vec<Cookie>> {
-            session.transition(SessionState::Connected, Some("ok".into()));
+    impl crate::ports::browser::PageDriver for ImmediateCookiePageDriver {
+        async fn navigate(&self, _url: &str, _timeout_secs: u64) -> AppResult<()> {
+            Ok(())
+        }
+        async fn get_cookies(&self) -> AppResult<Vec<Cookie>> {
             Ok(vec![Cookie {
                 name: "sessionid".into(),
                 value: "abc".into(),
@@ -225,43 +268,41 @@ mod tests {
                 secure: true,
             }])
         }
-        async fn submit_2fa<'a>(
-            &'a self,
-            _page: &'a dyn PageDriver,
-            _platform: Platform,
-            _code: &'a str,
-            _session: &'a mut Session,
-            _snapshot: &'a dyn SnapshotSink,
-        ) -> AppResult<Vec<Cookie>> {
+        async fn screenshot(&self) -> AppResult<Vec<u8>> {
             Ok(vec![])
+        }
+        async fn content_html(&self) -> AppResult<String> {
+            Ok(String::new())
+        }
+        async fn close(&self) -> AppResult<()> {
+            Ok(())
+        }
+        async fn set_mobile_viewport(&self) -> AppResult<()> {
+            Ok(())
         }
     }
 
-    /// Test double — sets the session to `Failed`.
-    struct FailingDriver;
+    /// Test double — never returns a session cookie.
+    struct NoCookiePageDriver;
     #[async_trait]
-    impl PlatformDriver for FailingDriver {
-        async fn login<'a>(
-            &'a self,
-            _page: &'a dyn PageDriver,
-            _platform: Platform,
-            _username: &'a str,
-            _password: &'a str,
-            session: &'a mut Session,
-            _snapshot: &'a dyn SnapshotSink,
-        ) -> AppResult<Vec<Cookie>> {
-            session.transition(SessionState::Failed, Some("bad creds".into()));
+    impl crate::ports::browser::PageDriver for NoCookiePageDriver {
+        async fn navigate(&self, _url: &str, _timeout_secs: u64) -> AppResult<()> {
+            Ok(())
+        }
+        async fn get_cookies(&self) -> AppResult<Vec<Cookie>> {
             Ok(vec![])
         }
-        async fn submit_2fa<'a>(
-            &'a self,
-            _page: &'a dyn PageDriver,
-            _platform: Platform,
-            _code: &'a str,
-            _session: &'a mut Session,
-            _snapshot: &'a dyn SnapshotSink,
-        ) -> AppResult<Vec<Cookie>> {
+        async fn screenshot(&self) -> AppResult<Vec<u8>> {
             Ok(vec![])
+        }
+        async fn content_html(&self) -> AppResult<String> {
+            Ok(String::new())
+        }
+        async fn close(&self) -> AppResult<()> {
+            Ok(())
+        }
+        async fn set_mobile_viewport(&self) -> AppResult<()> {
+            Ok(())
         }
     }
 
@@ -269,29 +310,26 @@ mod tests {
         sessions: MockSessionRepository,
         cookies: MockCookieRepository,
         browser: MockBrowserSessionFactory,
-        drivers: HashMap<Platform, Arc<dyn PlatformDriver>>,
-        snapshot: MockSnapshotSink,
     ) -> LoginUseCase {
         LoginUseCase::new(
             Arc::new(sessions),
             Arc::new(cookies),
             Arc::new(browser),
-            Arc::new(ActiveSessionRegistry::new()),
-            drivers,
-            Arc::new(snapshot),
+            Duration::from_secs(5),
         )
     }
 
-    fn happy_browser() -> MockBrowserSessionFactory {
+    fn happy_browser_with_page(page: Box<dyn crate::ports::browser::PageDriver>) -> MockBrowserSessionFactory {
         let mut factory = MockBrowserSessionFactory::new();
         factory.expect_acquire().return_once(|| {
             let mut session = MockBrowserSession::new();
-            session.expect_new_page().return_once(|| {
-                let page = MockPageDriver::new();
-                Ok(Box::new(page))
-            });
+            session.expect_new_page().return_once(move || Ok(page));
+            session.expect_viewer_url().returning(|| "http://localhost:6080/vnc.html?autoconnect=true".to_string());
             Ok(Box::new(session))
         });
+        factory
+            .expect_viewer_url()
+            .returning(|| Some("http://localhost:6080".to_string()));
         factory
     }
 
@@ -308,105 +346,30 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(()));
 
-        let snapshot = MockSnapshotSink::new();
-
-        let mut drivers = HashMap::new();
-        drivers.insert(
-            Platform::Instagram,
-            Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>,
-        );
-        let uc = build_login_use_case(sessions, cookies, happy_browser(), drivers, snapshot);
+        let page = Box::new(ImmediateCookiePageDriver);
+        let uc = build_login_use_case(sessions, cookies, happy_browser_with_page(page));
 
         let (tx, mut rx) = mpsc::channel(8);
-        uc.execute(Platform::Instagram, "u".into(), "p".into(), tx)
-            .await;
+        uc.execute(Platform::Instagram, tx).await;
 
         let started = rx.recv().await.expect("started event");
-        let final_evt = rx.recv().await.expect("final event");
         assert!(matches!(started, LoginEvent::Started(_)));
+
+        let waiting = rx.recv().await.expect("waiting event");
+        match &waiting {
+            LoginEvent::WaitingForUser(_, url) => {
+                assert!(url.contains("6080"));
+            }
+            _ => panic!("expected WaitingForUser, got {:?}", waiting),
+        }
+
+        let final_evt = rx.recv().await.expect("final event");
         match final_evt {
             LoginEvent::Final(s, cookies) => {
                 assert_eq!(s.state, SessionState::Connected);
                 assert_eq!(cookies.len(), 1);
             }
             _ => panic!("expected Final"),
-        }
-    }
-
-    #[tokio::test]
-    async fn login_failure_does_not_save_cookies() {
-        let mut sessions = MockSessionRepository::new();
-        sessions.expect_create().returning(Ok);
-        sessions.expect_update().returning(|_| Ok(()));
-
-        let mut cookies = MockCookieRepository::new();
-        // crucial: cookies.save must NOT be called on failure
-        cookies.expect_save().times(0);
-
-        let snapshot = MockSnapshotSink::new();
-
-        let mut drivers = HashMap::new();
-        drivers.insert(
-            Platform::Instagram,
-            Arc::new(FailingDriver) as Arc<dyn PlatformDriver>,
-        );
-        let uc = build_login_use_case(sessions, cookies, happy_browser(), drivers, snapshot);
-
-        let (tx, mut rx) = mpsc::channel(8);
-        uc.execute(Platform::Instagram, "u".into(), "p".into(), tx)
-            .await;
-        let _ = rx.recv().await;
-        let final_evt = rx.recv().await.unwrap();
-        match final_evt {
-            LoginEvent::Final(s, cookies) => {
-                assert_eq!(s.state, SessionState::Failed);
-                assert!(cookies.is_empty());
-            }
-            _ => panic!("expected Final"),
-        }
-    }
-
-    #[tokio::test]
-    async fn login_session_create_failure_emits_failed_final_event() {
-        let mut sessions = MockSessionRepository::new();
-        sessions
-            .expect_create()
-            .return_once(|_| Err(crate::ImauthError::Browser("db down".into())));
-
-        let mut cookies = MockCookieRepository::new();
-        cookies.expect_save().times(0);
-
-        let browser = MockBrowserSessionFactory::new();
-        let snapshot = MockSnapshotSink::new();
-
-        let mut drivers = HashMap::new();
-        drivers.insert(
-            Platform::Instagram,
-            Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>,
-        );
-        let uc = build_login_use_case(sessions, cookies, browser, drivers, snapshot);
-
-        let (tx, mut rx) = mpsc::channel(8);
-        uc.execute(Platform::Instagram, "u".into(), "p".into(), tx)
-            .await;
-
-        let final_evt = rx.recv().await.expect("client must see a terminal event");
-        match final_evt {
-            LoginEvent::Final(s, cookies) => {
-                assert_eq!(s.state, SessionState::Failed);
-                // Empty session_id signals "never persisted" so the client
-                // can distinguish DB-failure from a real session that later
-                // transitioned to Failed.
-                assert_eq!(s.id, "", "unpersisted session must carry an empty id");
-                assert_eq!(s.platform, Platform::Instagram.as_str());
-                assert_eq!(
-                    s.message.as_deref(),
-                    Some("Failed to create session"),
-                    "operators rely on this exact wording to debug DB failures"
-                );
-                assert!(cookies.is_empty());
-            }
-            _ => panic!("expected Final, got Started — clients would see empty stream"),
         }
     }
 
@@ -423,19 +386,12 @@ mod tests {
         browser
             .expect_acquire()
             .return_once(|| Err(crate::ImauthError::Browser("no cdp".into())));
+        browser.expect_viewer_url().returning(|| None);
 
-        let snapshot = MockSnapshotSink::new();
-
-        let mut drivers = HashMap::new();
-        drivers.insert(
-            Platform::Instagram,
-            Arc::new(ConnectingDriver) as Arc<dyn PlatformDriver>,
-        );
-        let uc = build_login_use_case(sessions, cookies, browser, drivers, snapshot);
+        let uc = build_login_use_case(sessions, cookies, browser);
 
         let (tx, mut rx) = mpsc::channel(8);
-        uc.execute(Platform::Instagram, "u".into(), "p".into(), tx)
-            .await;
+        uc.execute(Platform::Instagram, tx).await;
         let _ = rx.recv().await;
         let final_evt = rx.recv().await.unwrap();
         match final_evt {

@@ -5,22 +5,37 @@ use std::path::PathBuf;
 pub struct ServerConfig {
     #[serde(default = "default_grpc_addr")]
     pub grpc_addr: String,
+    #[serde(default)]
+    pub metrics_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BrowserConfig {
     #[serde(default = "default_cdp_url")]
     pub cdp_url: String,
+    /// Comma-separated CDP URLs for pooled Chrome instances.
+    /// When set, overrides `cdp_url`.
+    #[serde(default)]
+    pub cdp_urls: Option<String>,
     #[serde(default = "default_max_pool_size")]
     pub max_pool_size: usize,
     #[serde(default = "default_page_timeout_secs")]
     pub page_timeout_secs: u64,
+    #[serde(default)]
+    pub novnc_base_url: Option<String>,
+    /// Comma-separated noVNC port numbers, one per Chrome instance.
+    #[serde(default)]
+    pub novnc_ports: Option<String>,
+    #[serde(default = "default_login_timeout_secs")]
+    pub login_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StorageConfig {
     #[serde(default = "default_data_dir")]
     pub data_dir: PathBuf,
+    #[serde(default)]
+    pub database_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -55,7 +70,7 @@ fn default_grpc_addr() -> String {
 }
 
 fn default_cdp_url() -> String {
-    "http://localhost:9222".to_string()
+    "http://127.0.0.1:9222".to_string()
 }
 
 fn default_max_pool_size() -> usize {
@@ -64,6 +79,14 @@ fn default_max_pool_size() -> usize {
 
 fn default_page_timeout_secs() -> u64 {
     30
+}
+
+fn default_login_timeout_secs() -> u64 {
+    300
+}
+
+fn default_metrics_port() -> u16 {
+    9090
 }
 
 fn default_data_dir() -> PathBuf {
@@ -97,14 +120,20 @@ impl Default for Config {
         Self {
             server: ServerConfig {
                 grpc_addr: default_grpc_addr(),
+                metrics_port: None,
             },
             browser: BrowserConfig {
                 cdp_url: default_cdp_url(),
+                cdp_urls: None,
                 max_pool_size: default_max_pool_size(),
                 page_timeout_secs: default_page_timeout_secs(),
+                novnc_base_url: None,
+                novnc_ports: None,
+                login_timeout_secs: default_login_timeout_secs(),
             },
             storage: StorageConfig {
                 data_dir: default_data_dir(),
+                database_url: None,
             },
             security: SecurityConfig {
                 encryption_key: None,
@@ -140,11 +169,33 @@ impl Config {
         if let Ok(url) = std::env::var("IMAUTH_CDP_URL") {
             self.browser.cdp_url = url;
         }
+        if let Ok(urls) = std::env::var("IMAUTH_CDP_URLS") {
+            self.browser.cdp_urls = Some(urls);
+        }
         if let Ok(key) = std::env::var("IMAUTH_ENCRYPTION_KEY") {
             self.security.encryption_key = Some(key);
         }
         if let Ok(dir) = std::env::var("IMAUTH_DATA_DIR") {
             self.storage.data_dir = PathBuf::from(dir);
+        }
+        if let Ok(url) = std::env::var("IMAUTH_NOVNC_BASE_URL") {
+            self.browser.novnc_base_url = Some(url);
+        }
+        if let Ok(ports) = std::env::var("IMAUTH_NOVNC_PORTS") {
+            self.browser.novnc_ports = Some(ports);
+        }
+        if let Ok(secs) = std::env::var("IMAUTH_LOGIN_TIMEOUT_SECS") {
+            if let Ok(s) = secs.parse() {
+                self.browser.login_timeout_secs = s;
+            }
+        }
+        if let Ok(url) = std::env::var("IMAUTH_DATABASE_URL") {
+            self.storage.database_url = Some(url);
+        }
+        if let Ok(port) = std::env::var("IMAUTH_METRICS_PORT") {
+            if let Ok(p) = port.parse() {
+                self.server.metrics_port = Some(p);
+            }
         }
 
         if self.security.encryption_key.as_deref() == Some("") {
@@ -153,50 +204,10 @@ impl Config {
         self.storage.data_dir = expand_tilde(std::mem::take(&mut self.storage.data_dir));
     }
 
-    pub fn load() -> crate::Result<Self> {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-        let dir = home.join(".imauth");
-        let path = dir.join("config.toml");
-
-        if !path.exists() {
-            std::fs::create_dir_all(&dir).map_err(|e| {
-                crate::ImauthError::Config(format!(
-                    "Failed to create config dir {}: {e}",
-                    dir.display()
-                ))
-            })?;
-
-            let toml = toml::to_string_pretty(&Self::default()).map_err(|e| {
-                crate::ImauthError::Config(format!("Failed to serialize config: {e}"))
-            })?;
-            let toml = toml.replace(
-                "encryption_key = \"\"",
-                "# REQUIRED: 32-byte base64-encoded AES-256 key.\n\
-                 # Generate with: openssl rand -base64 32\n\
-                 encryption_key = \"\"",
-            );
-            match std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
-                Ok(mut file) => {
-                    use std::io::Write;
-                    file.write_all(toml.as_bytes()).map_err(|e| {
-                        crate::ImauthError::Config(format!("Failed to write default config: {e}"))
-                    })?;
-                    tracing::info!("Created default config at {}", path.display());
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(e) => {
-                    return Err(crate::ImauthError::Config(format!(
-                        "Failed to create default config: {e}"
-                    )))
-                }
-            }
-        }
-
-        Self::from_file(&path)
+    pub fn from_env() -> Self {
+        let mut cfg = Self::default();
+        cfg.apply_env_overrides();
+        cfg
     }
 
     pub fn grpc_addr(&self) -> &str {
@@ -207,12 +218,45 @@ impl Config {
         &self.browser.cdp_url
     }
 
+    /// Returns parsed CDP URLs for pooled Chrome instances.
+    /// Falls back to single `cdp_url` if `cdp_urls` is not set.
+    pub fn cdp_urls(&self) -> Vec<String> {
+        if let Some(ref urls) = self.browser.cdp_urls {
+            urls.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        } else {
+            vec![self.browser.cdp_url.clone()]
+        }
+    }
+
+    /// Returns parsed noVNC ports, one per Chrome instance.
+    pub fn novnc_ports(&self) -> Vec<u16> {
+        if let Some(ref ports) = self.browser.novnc_ports {
+            ports
+                .split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect()
+        } else {
+            vec![]
+        }
+    }
+
     pub fn max_pool_size(&self) -> usize {
         self.browser.max_pool_size
     }
 
     pub fn page_timeout_secs(&self) -> u64 {
         self.browser.page_timeout_secs
+    }
+
+    pub fn novnc_base_url(&self) -> Option<String> {
+        self.browser.novnc_base_url.clone()
+    }
+
+    pub fn login_timeout_secs(&self) -> u64 {
+        self.browser.login_timeout_secs
     }
 
     pub fn db_path(&self) -> PathBuf {
@@ -237,6 +281,19 @@ impl Config {
 
     pub fn refresh_retry_max(&self) -> u32 {
         self.refresh.retry_max
+    }
+
+    /// Returns the configured database URL, or a SQLite file path when unset.
+    pub fn database_url(&self) -> String {
+        if let Some(ref url) = self.storage.database_url {
+            url.clone()
+        } else {
+            format!("sqlite:{}", self.db_path().display())
+        }
+    }
+
+    pub fn metrics_port(&self) -> u16 {
+        self.server.metrics_port.unwrap_or_else(default_metrics_port)
     }
 }
 
@@ -264,6 +321,8 @@ mod tests {
             "IMAUTH_CDP_URL",
             "IMAUTH_ENCRYPTION_KEY",
             "IMAUTH_DATA_DIR",
+            "IMAUTH_DATABASE_URL",
+            "IMAUTH_METRICS_PORT",
         ] {
             std::env::remove_var(k);
         }
@@ -273,7 +332,7 @@ mod tests {
     fn config_default_has_expected_values() {
         let cfg = Config::default();
         assert_eq!(cfg.grpc_addr(), "0.0.0.0:50051");
-        assert_eq!(cfg.cdp_url(), "http://localhost:9222");
+        assert_eq!(cfg.cdp_url(), "http://127.0.0.1:9222");
         assert_eq!(cfg.max_pool_size(), 3);
         assert_eq!(cfg.page_timeout_secs(), 30);
         assert!(cfg.encryption_key().is_none());
@@ -306,7 +365,7 @@ mod tests {
 
         let cfg = Config::from_file(&missing).unwrap();
         assert_eq!(cfg.grpc_addr(), "0.0.0.0:50051");
-        assert_eq!(cfg.cdp_url(), "http://localhost:9222");
+        assert_eq!(cfg.cdp_url(), "http://127.0.0.1:9222");
     }
 
     #[test]
@@ -332,7 +391,7 @@ max_pool_size = 7
         assert_eq!(cfg.grpc_addr(), "127.0.0.1:9999");
         assert_eq!(cfg.max_pool_size(), 7);
         // Unset fields within a present section fall back to per-field defaults.
-        assert_eq!(cfg.cdp_url(), "http://localhost:9222");
+        assert_eq!(cfg.cdp_url(), "http://127.0.0.1:9222");
         assert_eq!(cfg.page_timeout_secs(), 30);
     }
 

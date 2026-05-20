@@ -1,44 +1,97 @@
 services:
-  chrome:
-    # Pinned to a specific tag so Chromium/CDP wire format and login selectors
-    # don't shift under upstream changes. Bump intentionally with the matching
-    # chromiumoxide crate update.
-    image: selenium/standalone-chromium:131.0
-    shm_size: '2gb'
-    ports:
-      - "${IMAUTH_GRPC_HOST_PORT:-50051}:50051"
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: imauth
+      POSTGRES_PASSWORD: imauth
+      POSTGRES_DB: imauth
     volumes:
-      - ./scripts/chrome-entrypoint.sh:/chrome-entrypoint.sh:ro
+      - imauth-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U imauth -d imauth"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  chrome-0:
+    build:
+      context: .
+      dockerfile: Dockerfile.chrome
+    shm_size: "2gb"
+    restart: unless-stopped
+    environment:
+      - DISPLAY_NUM=99
+      - IMAUTH_VNC_PASSWORD=${IMAUTH_VNC_PASSWORD:-imauth}
+    ports:
+      - "${IMAUTH_NOVNC_PORT_0:-6101}:6080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9222/json/version"]
       interval: 3s
       timeout: 5s
       retries: 10
-    entrypoint: ["/bin/sh", "/chrome-entrypoint.sh"]
+
+  chrome-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.chrome
+    shm_size: "2gb"
+    restart: unless-stopped
+    environment:
+      - DISPLAY_NUM=100
+      - IMAUTH_VNC_PASSWORD=${IMAUTH_VNC_PASSWORD:-imauth}
+    ports:
+      - "${IMAUTH_NOVNC_PORT_1:-6102}:6080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9222/json/version"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  chrome-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.chrome
+    shm_size: "2gb"
+    restart: unless-stopped
+    environment:
+      - DISPLAY_NUM=101
+      - IMAUTH_VNC_PASSWORD=${IMAUTH_VNC_PASSWORD:-imauth}
+    ports:
+      - "${IMAUTH_NOVNC_PORT_2:-6103}:6080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9222/json/version"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
 
   server:
     build:
       context: .
       dockerfile: Dockerfile
     environment:
-      - IMAUTH_CDP_URL=http://localhost:9222
+      - IMAUTH_CDP_URLS=http://chrome-0:9222,http://chrome-1:9222,http://chrome-2:9222
       - IMAUTH_GRPC_ADDR=0.0.0.0:50051
       - IMAUTH_DATA_DIR=/data/.imauth/data
-      # Required: 32-byte base64-encoded AES-256 key
-      # Generate with: openssl rand -base64 32
       - IMAUTH_ENCRYPTION_KEY=${IMAUTH_ENCRYPTION_KEY}
-      # Required: gRPC API key for client authentication.
-      # Generate with: openssl rand -hex 32
-      # Server refuses requests without a matching Authorization: Bearer <key> header.
-      # If unset/empty, the server runs unauthenticated — DO NOT do this when 50051 is reachable from untrusted hosts.
       - IMAUTH_API_KEY=${IMAUTH_API_KEY}
+      - IMAUTH_NOVNC_BASE_URL=http://${IMAUTH_SERVER_HOSTNAME:-localhost}
+      - IMAUTH_NOVNC_PORTS=${IMAUTH_NOVNC_PORT_0:-6101},${IMAUTH_NOVNC_PORT_1:-6102},${IMAUTH_NOVNC_PORT_2:-6103}
+      - IMAUTH_DATABASE_URL=postgres://imauth:imauth@postgres/imauth
     volumes:
       - imauth-data:/data/.imauth
     depends_on:
-      chrome:
+      postgres:
         condition: service_healthy
+      chrome-0:
+        condition: service_healthy
+      chrome-1:
+        condition: service_healthy
+      chrome-2:
+        condition: service_healthy
+    ports:
+      - "${IMAUTH_GRPC_HOST_PORT:-6100}:50051"
     command: ["serve"]
-    network_mode: service:chrome
 
 volumes:
   imauth-data:
+  imauth-postgres:

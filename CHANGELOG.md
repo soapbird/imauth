@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0.0] - 2026-05-20
+
+### Added
+- User-driven login model: the server opens a browser via noVNC and returns a `viewer_url` so operators can log in themselves. Replaces the previous automated credential-stuffing approach with a more reliable human-in-the-loop flow.
+- Naver platform support: full login URL, cookie domains (`.naver.com`, `.nid.naver.com`), session cookie (`NID_AUT`), and domain-scoped cookie filtering.
+- PostgreSQL storage backend: `PostgresCookieRepository`, `PostgresCredentialRepository`, `PostgresSessionRepository`, and `PostgresRefreshTokenRepository` with parameterized queries, ON CONFLICT upserts, and automatic schema migrations. Configure via `IMAUTH_DATABASE_URL`; falls back to SQLite when unset.
+- Environment-only configuration: `Config::from_env()` reads all settings from `IMAUTH_*` env vars. Removed TOML config dependency — operators configure with `.env` or environment only.
+- Prometheus metrics endpoint: `/metrics` on a configurable port (default 9090). Tracks gRPC call outcomes and browser pool wait times.
+- gRPC health check: `tonic-health` reporter so Kubernetes probes work without auth.
+- `PooledBrowserFactory` with per-slot semaphores, DNS resolution for Chromium 131+ CDP Host-header rejection, and noVNC viewer URL per slot.
+- Chromiumoxide vendored patch in `patches/` with protocol and SDK updates, wired via `.cargo/config.toml` patch replacement.
+- Docker Compose CDP connectivity: `Dockerfile.chrome` with Xvfb + x11vnc + noVNC + socat for Chromium 131+ cross-container CDP access.
+- `.env.template` with all available `IMAUTH_*` variables documented.
+
+### Changed
+- **Breaking (proto):** `LoginRequest` no longer accepts `username`/`password` fields. `Submit2Fa` and `SubmitCaptcha` RPCs removed from the service definition. `SessionState` simplified from `NeedsCreds`/`Needs2Fa`/`NeedsCaptcha` to a single `WaitingForUser` state. `AuthEvent` now includes `viewer_url` and `session_id` fields.
+- **Breaking (CLI):** `login` command no longer takes `--username`/`--password`/`--2fa` flags. Instead, it prints the noVNC viewer URL and streams status until the user completes login in the browser.
+- `PageDriver` trait simplified: removed `find_element`, `fill_input`, `click_element`, `click_element_text`, `press_enter`, `get_page_text` (automation methods). Added `close` and `set_mobile_viewport` for user-driven flow.
+- gRPC methods now record metrics before error mapping so both success and failure paths are counted.
+- SDKs updated for proto v0.3.0.0: Python and TypeScript clients handle the new `viewer_url` field and removed RPCs.
+- Config default gRPC port changed from 50051 to 6100.
+- Deleted `config/imauth.example.toml` (replaced by `.env.template`).
+
+### Fixed
+- Docker Compose CDP connectivity for Chromium 131+: Chrome binds CDP to 127.0.0.1 only, so a socat proxy forwards external 9222 to internal 9223.
+- Python/TS SDK stale client references synced with proto v0.3.0.0 field names.
+
 ## [0.3.0.0] - 2026-05-16
 
 ### Added
