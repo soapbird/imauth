@@ -1,5 +1,6 @@
 fn main() {
-    let proto_dir = "../../proto";
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    let proto_dir = format!("{manifest_dir}/../../proto");
     tonic_build::configure()
         .out_dir("src/generated")
         .compile_protos(

@@ -50,7 +50,7 @@ jobs:
           .venv/bin/pip install --upgrade pip
           .venv/bin/pip install -e . pytest grpcio-tools
           .venv/bin/python -m grpc_tools.protoc \
-            -Iproto=../../proto \
+            -I../../proto \
             --python_out=imauth \
             --grpc_python_out=imauth \
             ../../proto/imauth/v1/*.proto
