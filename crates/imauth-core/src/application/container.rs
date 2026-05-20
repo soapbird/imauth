@@ -42,20 +42,39 @@ pub struct AppContainer {
 
 impl AppContainer {
     pub async fn from_config(config: Config) -> Result<Self> {
-        let pool = sqlite::init_pool(&config).await?;
-        sqlite::run_migrations(&pool).await?;
-
         let encryption: Arc<dyn EncryptionService> =
             Arc::new(AesGcmEncryptionService::from_config(&config)?);
 
-        let sessions: Arc<dyn SessionRepository> =
-            Arc::new(SqliteSessionRepository::new(pool.clone()));
-        let cookies: Arc<dyn CookieRepository> =
-            Arc::new(SqliteCookieRepository::new(pool.clone()));
-        let credentials: Arc<dyn CredentialRepository> = Arc::new(SqliteCredentialRepository::new(
-            pool.clone(),
-            encryption.clone(),
-        ));
+        let database_url = config.database_url();
+        let (sessions, cookies, credentials): (
+            Arc<dyn SessionRepository>,
+            Arc<dyn CookieRepository>,
+            Arc<dyn CredentialRepository>,
+        );
+
+        if database_url.starts_with("postgres://") {
+            let pool = crate::adapters::postgres::init_pool(&database_url).await?;
+            crate::adapters::postgres::run_migrations(&pool).await?;
+            sessions = Arc::new(crate::adapters::postgres::PostgresSessionRepository::new(
+                pool.clone(),
+            ));
+            cookies = Arc::new(crate::adapters::postgres::PostgresCookieRepository::new(
+                pool.clone(),
+            ));
+            credentials = Arc::new(crate::adapters::postgres::PostgresCredentialRepository::new(
+                pool.clone(),
+                encryption.clone(),
+            ));
+        } else {
+            let pool = sqlite::init_pool(&config).await?;
+            sqlite::run_migrations(&pool).await?;
+            sessions = Arc::new(SqliteSessionRepository::new(pool.clone()));
+            cookies = Arc::new(SqliteCookieRepository::new(pool.clone()));
+            credentials = Arc::new(SqliteCredentialRepository::new(
+                pool.clone(),
+                encryption.clone(),
+            ));
+        }
 
         let novnc_base_url = config.novnc_base_url().unwrap_or_default();
         let novnc_ports = config.novnc_ports();

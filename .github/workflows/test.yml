@@ -8,6 +8,20 @@ on:
 jobs:
   rust:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: imauth
+          POSTGRES_PASSWORD: imauth
+          POSTGRES_DB: imauth
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
     steps:
       - uses: actions/checkout@v4
       - name: install protoc
@@ -16,6 +30,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --workspace
       - run: cargo test --workspace
+        env:
+          PG_DATABASE_URL: postgres://imauth:imauth@localhost:5432/imauth
       - run: cargo clippy --workspace -- -D warnings
 
   python-sdk:

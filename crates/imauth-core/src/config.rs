@@ -5,6 +5,8 @@ use std::path::PathBuf;
 pub struct ServerConfig {
     #[serde(default = "default_grpc_addr")]
     pub grpc_addr: String,
+    #[serde(default)]
+    pub metrics_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -32,6 +34,8 @@ pub struct BrowserConfig {
 pub struct StorageConfig {
     #[serde(default = "default_data_dir")]
     pub data_dir: PathBuf,
+    #[serde(default)]
+    pub database_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -81,6 +85,10 @@ fn default_login_timeout_secs() -> u64 {
     300
 }
 
+fn default_metrics_port() -> u16 {
+    9090
+}
+
 fn default_data_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
@@ -112,6 +120,7 @@ impl Default for Config {
         Self {
             server: ServerConfig {
                 grpc_addr: default_grpc_addr(),
+                metrics_port: None,
             },
             browser: BrowserConfig {
                 cdp_url: default_cdp_url(),
@@ -124,6 +133,7 @@ impl Default for Config {
             },
             storage: StorageConfig {
                 data_dir: default_data_dir(),
+                database_url: None,
             },
             security: SecurityConfig {
                 encryption_key: None,
@@ -179,6 +189,14 @@ impl Config {
                 self.browser.login_timeout_secs = s;
             }
         }
+        if let Ok(url) = std::env::var("IMAUTH_DATABASE_URL") {
+            self.storage.database_url = Some(url);
+        }
+        if let Ok(port) = std::env::var("IMAUTH_METRICS_PORT") {
+            if let Ok(p) = port.parse() {
+                self.server.metrics_port = Some(p);
+            }
+        }
 
         if self.security.encryption_key.as_deref() == Some("") {
             self.security.encryption_key = None;
@@ -186,50 +204,10 @@ impl Config {
         self.storage.data_dir = expand_tilde(std::mem::take(&mut self.storage.data_dir));
     }
 
-    pub fn load() -> crate::Result<Self> {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-        let dir = home.join(".imauth");
-        let path = dir.join("config.toml");
-
-        if !path.exists() {
-            std::fs::create_dir_all(&dir).map_err(|e| {
-                crate::ImauthError::Config(format!(
-                    "Failed to create config dir {}: {e}",
-                    dir.display()
-                ))
-            })?;
-
-            let toml = toml::to_string_pretty(&Self::default()).map_err(|e| {
-                crate::ImauthError::Config(format!("Failed to serialize config: {e}"))
-            })?;
-            let toml = toml.replace(
-                "encryption_key = \"\"",
-                "# REQUIRED: 32-byte base64-encoded AES-256 key.\n\
-                 # Generate with: openssl rand -base64 32\n\
-                 encryption_key = \"\"",
-            );
-            match std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
-                Ok(mut file) => {
-                    use std::io::Write;
-                    file.write_all(toml.as_bytes()).map_err(|e| {
-                        crate::ImauthError::Config(format!("Failed to write default config: {e}"))
-                    })?;
-                    tracing::info!("Created default config at {}", path.display());
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(e) => {
-                    return Err(crate::ImauthError::Config(format!(
-                        "Failed to create default config: {e}"
-                    )))
-                }
-            }
-        }
-
-        Self::from_file(&path)
+    pub fn from_env() -> Self {
+        let mut cfg = Self::default();
+        cfg.apply_env_overrides();
+        cfg
     }
 
     pub fn grpc_addr(&self) -> &str {
@@ -304,6 +282,19 @@ impl Config {
     pub fn refresh_retry_max(&self) -> u32 {
         self.refresh.retry_max
     }
+
+    /// Returns the configured database URL, or a SQLite file path when unset.
+    pub fn database_url(&self) -> String {
+        if let Some(ref url) = self.storage.database_url {
+            url.clone()
+        } else {
+            format!("sqlite:{}", self.db_path().display())
+        }
+    }
+
+    pub fn metrics_port(&self) -> u16 {
+        self.server.metrics_port.unwrap_or_else(default_metrics_port)
+    }
 }
 
 #[cfg(test)]
@@ -330,6 +321,8 @@ mod tests {
             "IMAUTH_CDP_URL",
             "IMAUTH_ENCRYPTION_KEY",
             "IMAUTH_DATA_DIR",
+            "IMAUTH_DATABASE_URL",
+            "IMAUTH_METRICS_PORT",
         ] {
             std::env::remove_var(k);
         }

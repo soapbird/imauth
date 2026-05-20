@@ -1,16 +1,29 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: imauth
+      POSTGRES_PASSWORD: imauth
+      POSTGRES_DB: imauth
+    volumes:
+      - imauth-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U imauth -d imauth"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
   chrome-0:
     build:
       context: .
       dockerfile: Dockerfile.chrome
-    shm_size: '2gb'
+    shm_size: "2gb"
     restart: unless-stopped
     environment:
       - DISPLAY_NUM=99
-      - VNC_PASSWORD=${VNC_PASSWORD:-imauth}
+      - IMAUTH_VNC_PASSWORD=${IMAUTH_VNC_PASSWORD:-imauth}
     ports:
-      - "${IMAUTH_GRPC_HOST_PORT:-50051}:50051"
-      - "${NOVNC_PORT_0:-6081}:6080"
+      - "${IMAUTH_NOVNC_PORT_0:-6101}:6080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9222/json/version"]
       interval: 3s
@@ -21,13 +34,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.chrome
-    shm_size: '2gb'
+    shm_size: "2gb"
     restart: unless-stopped
     environment:
       - DISPLAY_NUM=100
-      - VNC_PASSWORD=${VNC_PASSWORD:-imauth}
+      - IMAUTH_VNC_PASSWORD=${IMAUTH_VNC_PASSWORD:-imauth}
     ports:
-      - "${NOVNC_PORT_1:-6082}:6080"
+      - "${IMAUTH_NOVNC_PORT_1:-6102}:6080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9222/json/version"]
       interval: 3s
@@ -38,13 +51,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.chrome
-    shm_size: '2gb'
+    shm_size: "2gb"
     restart: unless-stopped
     environment:
       - DISPLAY_NUM=101
-      - VNC_PASSWORD=${VNC_PASSWORD:-imauth}
+      - IMAUTH_VNC_PASSWORD=${IMAUTH_VNC_PASSWORD:-imauth}
     ports:
-      - "${NOVNC_PORT_2:-6083}:6080"
+      - "${IMAUTH_NOVNC_PORT_2:-6103}:6080"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9222/json/version"]
       interval: 3s
@@ -56,24 +69,29 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      - IMAUTH_CDP_URLS=http://localhost:9222
+      - IMAUTH_CDP_URLS=http://chrome-0:9222,http://chrome-1:9222,http://chrome-2:9222
       - IMAUTH_GRPC_ADDR=0.0.0.0:50051
       - IMAUTH_DATA_DIR=/data/.imauth/data
       - IMAUTH_ENCRYPTION_KEY=${IMAUTH_ENCRYPTION_KEY}
       - IMAUTH_API_KEY=${IMAUTH_API_KEY}
       - IMAUTH_NOVNC_BASE_URL=http://${IMAUTH_SERVER_HOSTNAME:-localhost}
-      - IMAUTH_NOVNC_PORTS=${NOVNC_PORT_0:-6081},${NOVNC_PORT_1:-6082},${NOVNC_PORT_2:-6083}
+      - IMAUTH_NOVNC_PORTS=${IMAUTH_NOVNC_PORT_0:-6101},${IMAUTH_NOVNC_PORT_1:-6102},${IMAUTH_NOVNC_PORT_2:-6103}
+      - IMAUTH_DATABASE_URL=postgres://imauth:imauth@postgres/imauth
     volumes:
       - imauth-data:/data/.imauth
     depends_on:
+      postgres:
+        condition: service_healthy
       chrome-0:
         condition: service_healthy
       chrome-1:
         condition: service_healthy
       chrome-2:
         condition: service_healthy
+    ports:
+      - "${IMAUTH_GRPC_HOST_PORT:-6100}:50051"
     command: ["serve"]
-    network_mode: service:chrome-0
 
 volumes:
   imauth-data:
+  imauth-postgres:

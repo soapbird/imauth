@@ -3,6 +3,17 @@
 
 use futures::Stream;
 use imauth_core::application::login::LoginEvent;
+
+macro_rules! record_grpc {
+    ($method:expr, $result:expr) => {
+        metrics::counter!(
+            "grpc_requests_total",
+            "method" => $method,
+            "status" => if $result.is_ok() { "ok" } else { "error" }
+        )
+        .increment(1);
+    };
+}
 use imauth_core::domain::session::{Cookie, Session, SessionState};
 use imauth_core::domain::Platform;
 use imauth_core::AppContainer;
@@ -134,6 +145,7 @@ impl AuthService for AuthGrpcService {
             Ok::<AuthEvent, Status>(evt)
         });
 
+        record_grpc!("login", Result::<(), tonic::Status>::Ok(()));
         Ok(Response::new(Box::pin(stream) as Self::LoginStream))
     }
 
@@ -146,8 +158,9 @@ impl AuthService for AuthGrpcService {
             .container
             .get_status
             .execute(&req.session_id)
-            .await
-            .map_err(map_auth_err)?;
+            .await;
+        record_grpc!("get_status", session);
+        let session = session.map_err(map_auth_err)?;
 
         Ok(Response::new(AuthStatusResponse {
             session_id: session.id,
@@ -163,11 +176,13 @@ impl AuthService for AuthGrpcService {
         request: Request<CancelRequest>,
     ) -> Result<Response<AuthResponse>, Status> {
         let req = request.into_inner();
-        self.container
+        let cancel_result = self
+            .container
             .cancel_session
             .execute(&req.session_id)
-            .await
-            .map_err(map_auth_err)?;
+            .await;
+        record_grpc!("cancel", cancel_result);
+        cancel_result.map_err(map_auth_err)?;
 
         Ok(Response::new(AuthResponse {
             success: true,
@@ -209,8 +224,9 @@ impl SessionService for SessionGrpcService {
             .container
             .get_cookies
             .execute(platform, domains)
-            .await
-            .map_err(map_auth_err)?;
+            .await;
+        record_grpc!("get_cookies", cookies);
+        let cookies = cookies.map_err(map_auth_err)?;
 
         Ok(Response::new(CookieList {
             cookies: cookies.iter().map(cookie_to_proto).collect(),
@@ -226,11 +242,13 @@ impl SessionService for SessionGrpcService {
             .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
         let cookies: Vec<Cookie> = req.cookies.iter().map(proto_cookie_from).collect();
 
-        self.container
+        let update_result = self
+            .container
             .update_cookies
             .execute(platform, cookies)
-            .await
-            .map_err(map_auth_err)?;
+            .await;
+        record_grpc!("update_cookies", update_result);
+        update_result.map_err(map_auth_err)?;
 
         Ok(Response::new(CookieList {
             cookies: req.cookies,
@@ -249,8 +267,9 @@ impl SessionService for SessionGrpcService {
             .container
             .export_netscape
             .execute(platform)
-            .await
-            .map_err(map_auth_err)?;
+            .await;
+        record_grpc!("export_netscape", content);
+        let content = content.map_err(map_auth_err)?;
 
         Ok(Response::new(NetscapeExport { content }))
     }
@@ -267,8 +286,9 @@ impl SessionService for SessionGrpcService {
             .container
             .validate_session
             .execute(platform)
-            .await
-            .map_err(map_auth_err)?;
+            .await;
+        record_grpc!("validate_session", outcome);
+        let outcome = outcome.map_err(map_auth_err)?;
 
         Ok(Response::new(ValidationResult {
             valid: outcome.valid,
@@ -285,8 +305,9 @@ impl SessionService for SessionGrpcService {
             .container
             .get_connection_status
             .execute()
-            .await
-            .map_err(map_auth_err)?;
+            .await;
+        record_grpc!("get_connection_status", platforms);
+        let platforms = platforms.map_err(map_auth_err)?;
 
         Ok(Response::new(ConnectionStatusMap { platforms }))
     }
@@ -320,11 +341,13 @@ impl CredentialService for CredentialGrpcService {
             Some(req.twofa_method.as_str())
         };
 
-        self.container
+        let save_result = self
+            .container
             .save_credential
             .execute(platform, &req.username, &req.password, twofa)
-            .await
-            .map_err(map_auth_err)?;
+            .await;
+        record_grpc!("save_credential", save_result);
+        save_result.map_err(map_auth_err)?;
 
         Ok(Response::new(CredentialResponse {
             success: true,
@@ -345,8 +368,9 @@ impl CredentialService for CredentialGrpcService {
             .container
             .get_credential
             .execute(platform)
-            .await
-            .map_err(map_auth_err)?;
+            .await;
+        record_grpc!("get_credential", cred);
+        let cred = cred.map_err(map_auth_err)?;
 
         match cred {
             Some(c) => Ok(Response::new(CredentialInfo {
@@ -367,11 +391,13 @@ impl CredentialService for CredentialGrpcService {
         let platform = platform_from_proto(req.platform)
             .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
 
-        self.container
+        let delete_result = self
+            .container
             .delete_credential
             .execute(platform)
-            .await
-            .map_err(map_auth_err)?;
+            .await;
+        record_grpc!("delete_credential", delete_result);
+        delete_result.map_err(map_auth_err)?;
 
         Ok(Response::new(CredentialResponse {
             success: true,

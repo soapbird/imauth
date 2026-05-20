@@ -2,7 +2,7 @@
 set -e
 
 # --- Configuration ---
-VNC_PASSWORD="${VNC_PASSWORD:-imauth}"
+VNC_PASSWORD="${IMAUTH_VNC_PASSWORD:-imauth}"
 DISPLAY_NUM="${DISPLAY_NUM:-99}"
 DISPLAY=":${DISPLAY_NUM}"
 
