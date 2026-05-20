@@ -36,7 +36,7 @@ export class ImauthClient {
   private apiKey?: string;
 
   constructor(
-    serverAddress: string = "localhost:50051",
+    serverAddress: string = "localhost:6100",
     options: ImauthClientOptions = {}
   ) {
     this.apiKey = options.apiKey;

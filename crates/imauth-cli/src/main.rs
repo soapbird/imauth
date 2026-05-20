@@ -12,7 +12,7 @@ use tonic::transport::Channel;
 #[command(name = "imauth")]
 #[command(about = "imauth CLI — social auth manager")]
 struct Cli {
-    #[arg(short, long, default_value = "http://localhost:50051")]
+    #[arg(short, long, default_value = "http://localhost:6100")]
     server: String,
 
     #[arg(short = 'k', long, env = "IMAUTH_API_KEY")]

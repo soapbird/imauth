@@ -4,7 +4,7 @@ describe('ImauthClient', () => {
   let client: ImauthClient;
 
   beforeEach(() => {
-    client = new ImauthClient('localhost:50051');
+    client = new ImauthClient('localhost:6100');
   });
 
   afterEach(() => {

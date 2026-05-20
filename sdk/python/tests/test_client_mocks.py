@@ -73,7 +73,7 @@ def test_login_streams_events_and_serializes_request():
     with patch.object(
         client_module.auth_pb2_grpc, "AuthServiceStub", return_value=fake_stub
     ):
-        events = list(c.login(Platform.INSTAGRAM, "user", "pw"))
+        events = list(c.login(Platform.INSTAGRAM))
 
     assert len(events) == 1
     event = events[0]
@@ -86,8 +86,6 @@ def test_login_streams_events_and_serializes_request():
     args, _ = fake_stub.Login.call_args
     req = args[0]
     assert req.platform == 1  # Platform.INSTAGRAM -> 1
-    assert req.username == "user"
-    assert req.password == "pw"
 
 
 def test_login_threads_platform_serializes_to_two():
@@ -98,7 +96,7 @@ def test_login_threads_platform_serializes_to_two():
     with patch.object(
         client_module.auth_pb2_grpc, "AuthServiceStub", return_value=fake_stub
     ):
-        list(c.login(Platform.THREADS, "u", "p"))
+        list(c.login(Platform.THREADS))
 
     args, _ = fake_stub.Login.call_args
     assert args[0].platform == 2
@@ -313,13 +311,15 @@ def test_auth_event_from_proto_unknown_status_falls_back_to_idle():
 
 
 def test_auth_response_to_event_success_maps_to_connected():
+    from imauth._converters import auth_response_to_event
     resp = types.SimpleNamespace(success=True, message="hi", cookies=[])
-    evt = client_module._auth_response_to_event(resp)
+    evt = auth_response_to_event(resp)
     assert evt.status == AuthStatus.CONNECTED
     assert evt.message == "hi"
 
 
 def test_auth_response_to_event_failure_maps_to_failed():
+    from imauth._converters import auth_response_to_event
     resp = types.SimpleNamespace(success=False, message="nope", cookies=[])
-    evt = client_module._auth_response_to_event(resp)
+    evt = auth_response_to_event(resp)
     assert evt.status == AuthStatus.FAILED
