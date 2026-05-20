@@ -23,6 +23,23 @@ fn main() {
         println!("cargo:warning=  proto file: {:?}", e.path());
     }
 
+    // Debug: invoke protoc directly to verify it works with our include path
+    let protoc_out = std::process::Command::new("protoc")
+        .args(["--proto_path", &proto_dir, "-o", "/dev/null"])
+        .args(["imauth/v1/common.proto", "imauth/v1/auth.proto"])
+        .output();
+    match &protoc_out {
+        Ok(out) => {
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                println!("cargo:warning=protoc direct invocation FAILED: {stderr}");
+            } else {
+                println!("cargo:warning=protoc direct invocation OK");
+            }
+        }
+        Err(e) => println!("cargo:warning=protoc direct invocation SPAWN FAILED: {e}"),
+    }
+
     tonic_build::configure()
         .out_dir("src/generated")
         .compile_protos(
@@ -32,7 +49,7 @@ fn main() {
                 "imauth/v1/session.proto",
                 "imauth/v1/credential.proto",
             ],
-            &[proto_dir],
+            &[&proto_dir],
         )
         .expect("Failed to compile protos");
 }
