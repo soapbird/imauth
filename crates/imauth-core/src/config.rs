@@ -70,7 +70,7 @@ fn default_grpc_addr() -> String {
 }
 
 fn default_cdp_url() -> String {
-    "http://localhost:9222".to_string()
+    "http://127.0.0.1:9222".to_string()
 }
 
 fn default_max_pool_size() -> usize {
@@ -332,7 +332,7 @@ mod tests {
     fn config_default_has_expected_values() {
         let cfg = Config::default();
         assert_eq!(cfg.grpc_addr(), "0.0.0.0:50051");
-        assert_eq!(cfg.cdp_url(), "http://localhost:9222");
+        assert_eq!(cfg.cdp_url(), "http://127.0.0.1:9222");
         assert_eq!(cfg.max_pool_size(), 3);
         assert_eq!(cfg.page_timeout_secs(), 30);
         assert!(cfg.encryption_key().is_none());
@@ -365,7 +365,7 @@ mod tests {
 
         let cfg = Config::from_file(&missing).unwrap();
         assert_eq!(cfg.grpc_addr(), "0.0.0.0:50051");
-        assert_eq!(cfg.cdp_url(), "http://localhost:9222");
+        assert_eq!(cfg.cdp_url(), "http://127.0.0.1:9222");
     }
 
     #[test]
@@ -391,7 +391,7 @@ max_pool_size = 7
         assert_eq!(cfg.grpc_addr(), "127.0.0.1:9999");
         assert_eq!(cfg.max_pool_size(), 7);
         // Unset fields within a present section fall back to per-field defaults.
-        assert_eq!(cfg.cdp_url(), "http://localhost:9222");
+        assert_eq!(cfg.cdp_url(), "http://127.0.0.1:9222");
         assert_eq!(cfg.page_timeout_secs(), 30);
     }
 

@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     novnc \
     websockify \
     curl \
+    socat \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/chrome-entrypoint.sh /chrome-entrypoint.sh

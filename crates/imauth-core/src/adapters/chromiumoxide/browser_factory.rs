@@ -27,8 +27,41 @@ impl ChromeSlot {
         }
     }
 
+    /// Chromium 131+ rejects CDP HTTP requests when the Host header contains
+    /// a non-IP hostname (e.g. `chrome-0`). Resolve the hostname to an IP so
+    /// the initial `json/version` request succeeds inside Docker networks.
+    async fn resolve_cdp_url(cdp_url: &str) -> Result<String> {
+        let url = url::Url::parse(cdp_url)
+            .map_err(|e| ImauthError::Browser(format!("Invalid CDP URL: {e}")))?;
+        let host = url
+            .host_str()
+            .ok_or_else(|| ImauthError::Browser("CDP URL has no host".into()))?;
+
+        // If already an IP, nothing to do.
+        if host.parse::<std::net::IpAddr>().is_ok() {
+            return Ok(cdp_url.to_string());
+        }
+
+        let addrs: Vec<_> = tokio::net::lookup_host(format!("{}:{}", host, url.port().unwrap_or(9222)))
+            .await
+            .map_err(|e| ImauthError::Browser(format!("Failed to resolve {host}: {e}")))?
+            .collect();
+
+        let addr = addrs
+            .first()
+            .ok_or_else(|| ImauthError::Browser(format!("No addresses for {host}")))?;
+
+        let mut resolved = url.clone();
+        resolved
+            .set_host(Some(&addr.ip().to_string()))
+            .map_err(|e| ImauthError::Browser(format!("Failed to set host: {e}")))?;
+        Ok(resolved.to_string())
+    }
+
     async fn connect(cdp_url: &str) -> Result<Browser> {
-        let (browser, mut handler) = Browser::connect(cdp_url)
+        let resolved = Self::resolve_cdp_url(cdp_url).await?;
+        tracing::debug!("Connecting to CDP at {resolved} (original: {cdp_url})");
+        let (browser, mut handler) = Browser::connect(&resolved)
             .await
             .map_err(|e| ImauthError::Browser(format!("Failed to connect to CDP: {e}")))?;
         tokio::spawn(async move {
