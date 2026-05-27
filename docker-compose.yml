@@ -24,8 +24,8 @@ services:
       - /bin/bash
       - -lc
       - |
-        mkdir -p /home/kasm-user/.config/google-chrome/imauth
-        rm -f /home/kasm-user/.config/google-chrome/imauth/SingletonLock /home/kasm-user/.config/google-chrome/imauth/SingletonSocket /home/kasm-user/.config/google-chrome/imauth/SingletonCookie
+        mkdir -p /home/kasm-user/.config/chromium
+        rm -f /home/kasm-user/.config/chromium/SingletonLock /home/kasm-user/.config/chromium/SingletonSocket /home/kasm-user/.config/chromium/SingletonCookie
         chown -R kasm-user:kasm-user /home/kasm-user/.config /home/kasm-user/.cache /home/kasm-user/.local /home/kasm-user/Desktop /home/kasm-user/Downloads /home/kasm-user/Uploads 2>/dev/null || true
         mkdir -p /home/kasm-user/.vnc
         cat > /home/kasm-user/.vnc/kasmvnc.yaml <<'YAML'
@@ -116,10 +116,10 @@ services:
         --start-maximized
         --remote-debugging-address=0.0.0.0
         --remote-debugging-port=9222
-        --user-data-dir=/home/kasm-user/.config/google-chrome/imauth
+        --user-data-dir=/home/kasm-user/.config/chromium
         --lang=ko-KR
     volumes:
-      - ../imauth-data/chrome-0:/home/kasm-user/.config/google-chrome/imauth:rw
+      - ../imauth-data/chrome-0:/home/kasm-user/.config/chromium:rw
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9223/json/version"]
       interval: 3s
@@ -179,8 +179,8 @@ services:
       - /bin/bash
       - -lc
       - |
-        mkdir -p /home/kasm-user/.config/google-chrome/imauth
-        rm -f /home/kasm-user/.config/google-chrome/imauth/SingletonLock /home/kasm-user/.config/google-chrome/imauth/SingletonSocket /home/kasm-user/.config/google-chrome/imauth/SingletonCookie
+        mkdir -p /home/kasm-user/.config/chromium
+        rm -f /home/kasm-user/.config/chromium/SingletonLock /home/kasm-user/.config/chromium/SingletonSocket /home/kasm-user/.config/chromium/SingletonCookie
         chown -R kasm-user:kasm-user /home/kasm-user/.config /home/kasm-user/.cache /home/kasm-user/.local /home/kasm-user/Desktop /home/kasm-user/Downloads /home/kasm-user/Uploads 2>/dev/null || true
         mkdir -p /home/kasm-user/.vnc
         cat > /home/kasm-user/.vnc/kasmvnc.yaml <<'YAML'
@@ -271,10 +271,10 @@ services:
         --start-maximized
         --remote-debugging-address=0.0.0.0
         --remote-debugging-port=9222
-        --user-data-dir=/home/kasm-user/.config/google-chrome/imauth
+        --user-data-dir=/home/kasm-user/.config/chromium
         --lang=ko-KR
     volumes:
-      - ../imauth-data/chrome-1:/home/kasm-user/.config/google-chrome/imauth:rw
+      - ../imauth-data/chrome-1:/home/kasm-user/.config/chromium:rw
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9223/json/version"]
       interval: 3s
@@ -334,8 +334,8 @@ services:
       - /bin/bash
       - -lc
       - |
-        mkdir -p /home/kasm-user/.config/google-chrome/imauth
-        rm -f /home/kasm-user/.config/google-chrome/imauth/SingletonLock /home/kasm-user/.config/google-chrome/imauth/SingletonSocket /home/kasm-user/.config/google-chrome/imauth/SingletonCookie
+        mkdir -p /home/kasm-user/.config/chromium
+        rm -f /home/kasm-user/.config/chromium/SingletonLock /home/kasm-user/.config/chromium/SingletonSocket /home/kasm-user/.config/chromium/SingletonCookie
         chown -R kasm-user:kasm-user /home/kasm-user/.config /home/kasm-user/.cache /home/kasm-user/.local /home/kasm-user/Desktop /home/kasm-user/Downloads /home/kasm-user/Uploads 2>/dev/null || true
         mkdir -p /home/kasm-user/.vnc
         cat > /home/kasm-user/.vnc/kasmvnc.yaml <<'YAML'
@@ -426,10 +426,10 @@ services:
         --start-maximized
         --remote-debugging-address=0.0.0.0
         --remote-debugging-port=9222
-        --user-data-dir=/home/kasm-user/.config/google-chrome/imauth
+        --user-data-dir=/home/kasm-user/.config/chromium
         --lang=ko-KR
     volumes:
-      - ../imauth-data/chrome-2:/home/kasm-user/.config/google-chrome/imauth:rw
+      - ../imauth-data/chrome-2:/home/kasm-user/.config/chromium:rw
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9223/json/version"]
       interval: 3s
