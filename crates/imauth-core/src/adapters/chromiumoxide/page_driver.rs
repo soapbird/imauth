@@ -4,7 +4,6 @@ use crate::ImauthError;
 use crate::Result;
 use async_trait::async_trait;
 use chromiumoxide::page::Page;
-use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
 use serde::de::DeserializeOwned;
 use std::time::Duration;
 
@@ -110,29 +109,6 @@ impl PageDriver for ChromiumOxidePageDriver {
                 .await
                 .map_err(|e| ImauthError::Browser(format!("Failed to close page: {e}")))?;
         }
-        Ok(())
-    }
-
-    async fn set_mobile_viewport(&self) -> Result<()> {
-        let guard = self.page.lock().await;
-        let page = guard
-            .as_ref()
-            .ok_or_else(|| ImauthError::Browser("set_mobile_viewport: page already closed".into()))?;
-
-        // iPhone 14 Pro dimensions
-        let metrics = SetDeviceMetricsOverrideParams::new(390, 844, 3.0, true);
-        page.execute(metrics)
-            .await
-            .map_err(|e| ImauthError::Browser(format!("Failed to set mobile viewport: {e}")))?;
-
-        page.set_user_agent(
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) \
-             AppleWebKit/605.1.15 (KHTML, like Gecko) \
-             Version/16.6 Mobile/15E148 Safari/604.1",
-        )
-        .await
-        .map_err(|e| ImauthError::Browser(format!("Failed to set mobile user agent: {e}")))?;
-
         Ok(())
     }
 }

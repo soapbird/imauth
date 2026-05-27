@@ -29,5 +29,4 @@ pub trait PageDriver: Send + Sync {
     async fn screenshot(&self) -> Result<Vec<u8>>;
     async fn content_html(&self) -> Result<String>;
     async fn close(&self) -> Result<()>;
-    async fn set_mobile_viewport(&self) -> Result<()>;
 }

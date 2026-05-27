@@ -143,10 +143,6 @@ impl LoginUseCase {
         );
         let _ = self.sessions.update(&session).await;
 
-        if let Err(e) = page.set_mobile_viewport().await {
-            tracing::warn!(session_id = %session.id, "failed to set mobile viewport: {e}");
-        }
-
         if let Err(e) = page.navigate(platform.login_url(), 30).await {
             session.transition(
                 SessionState::Failed,
@@ -274,9 +270,6 @@ mod tests {
             Ok(String::new())
         }
         async fn close(&self) -> AppResult<()> {
-            Ok(())
-        }
-        async fn set_mobile_viewport(&self) -> AppResult<()> {
             Ok(())
         }
     }

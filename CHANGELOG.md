@@ -19,7 +19,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - **Breaking (proto):** `LoginRequest` no longer accepts `username`/`password` fields. `Submit2Fa` and `SubmitCaptcha` RPCs removed from the service definition. `SessionState` simplified from `NeedsCreds`/`Needs2Fa`/`NeedsCaptcha` to a single `WaitingForUser` state. `AuthEvent` now includes `viewer_url` and `session_id` fields.
 - **Breaking (CLI):** `login` command no longer takes `--username`/`--password`/`--2fa` flags. Instead, it prints the noVNC viewer URL and streams status until the user completes login in the browser.
-- `PageDriver` trait simplified: removed `find_element`, `fill_input`, `click_element`, `click_element_text`, `press_enter`, `get_page_text` (automation methods). Added `close` and `set_mobile_viewport` for user-driven flow.
+- `PageDriver` trait simplified: removed `find_element`, `fill_input`, `click_element`, `click_element_text`, `press_enter`, `get_page_text` (automation methods). Added `close` for user-driven flow.
 - gRPC methods now record metrics before error mapping so both success and failure paths are counted.
 - SDKs updated for proto v0.3.0.0: Python and TypeScript clients handle the new `viewer_url` field and removed RPCs.
 - Config default gRPC port changed from 50051 to 6100.
