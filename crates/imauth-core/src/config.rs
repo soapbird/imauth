@@ -21,13 +21,7 @@ pub struct BrowserConfig {
     pub max_pool_size: usize,
     #[serde(default = "default_page_timeout_secs")]
     pub page_timeout_secs: u64,
-    #[serde(default)]
-    pub novnc_base_url: Option<String>,
-    /// Comma-separated noVNC port numbers, one per Chrome instance.
-    #[serde(default)]
-    pub novnc_ports: Option<String>,
     /// Comma-separated browser viewer URLs, one per Chrome instance.
-    /// When set, overrides noVNC URL construction.
     #[serde(default)]
     pub viewer_urls: Option<String>,
     #[serde(default = "default_login_timeout_secs")]
@@ -131,8 +125,6 @@ impl Default for Config {
                 cdp_urls: None,
                 max_pool_size: default_max_pool_size(),
                 page_timeout_secs: default_page_timeout_secs(),
-                novnc_base_url: None,
-                novnc_ports: None,
                 viewer_urls: None,
                 login_timeout_secs: default_login_timeout_secs(),
             },
@@ -182,12 +174,6 @@ impl Config {
         }
         if let Ok(dir) = std::env::var("IMAUTH_DATA_DIR") {
             self.storage.data_dir = PathBuf::from(dir);
-        }
-        if let Ok(url) = std::env::var("IMAUTH_NOVNC_BASE_URL") {
-            self.browser.novnc_base_url = Some(url);
-        }
-        if let Ok(ports) = std::env::var("IMAUTH_NOVNC_PORTS") {
-            self.browser.novnc_ports = Some(ports);
         }
         if let Ok(urls) = std::env::var("IMAUTH_BROWSER_VIEWER_URLS") {
             self.browser.viewer_urls = Some(urls);
@@ -239,18 +225,6 @@ impl Config {
         }
     }
 
-    /// Returns parsed noVNC ports, one per Chrome instance.
-    pub fn novnc_ports(&self) -> Vec<u16> {
-        if let Some(ref ports) = self.browser.novnc_ports {
-            ports
-                .split(',')
-                .filter_map(|s| s.trim().parse().ok())
-                .collect()
-        } else {
-            vec![]
-        }
-    }
-
     pub fn browser_viewer_urls(&self) -> Vec<String> {
         if let Some(ref urls) = self.browser.viewer_urls {
             urls.split(',')
@@ -268,10 +242,6 @@ impl Config {
 
     pub fn page_timeout_secs(&self) -> u64 {
         self.browser.page_timeout_secs
-    }
-
-    pub fn novnc_base_url(&self) -> Option<String> {
-        self.browser.novnc_base_url.clone()
     }
 
     pub fn login_timeout_secs(&self) -> u64 {
@@ -343,8 +313,6 @@ mod tests {
             "IMAUTH_CDP_URLS",
             "IMAUTH_ENCRYPTION_KEY",
             "IMAUTH_DATA_DIR",
-            "IMAUTH_NOVNC_BASE_URL",
-            "IMAUTH_NOVNC_PORTS",
             "IMAUTH_BROWSER_VIEWER_URLS",
             "IMAUTH_DATABASE_URL",
             "IMAUTH_METRICS_PORT",

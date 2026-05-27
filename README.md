@@ -1,6 +1,6 @@
 # imauth
 
-Browser-automation-based authentication service with gRPC API. Supports headless login flows and user-driven (noVNC) fallback for 2FA, CAPTCHA, and other interactive challenges.
+Browser-automation-based authentication service with gRPC API. Supports headless login flows and user-driven Kasm browser viewer for 2FA, CAPTCHA, and other interactive challenges.
 
 ## Quick Start (Docker Compose)
 
@@ -23,9 +23,9 @@ docker compose ps
 | Host Port | Container / Service | Purpose | Required |
 |-----------|---------------------|---------|----------|
 | **6100** | `chrome-0:50051` | gRPC API | ✅ Always |
-| **6101** | `chrome-0:6080` | noVNC viewer (slot 0) | ✅ User-driven login |
-| **6102** | `chrome-1:6080` | noVNC viewer (slot 1) | ✅ User-driven login |
-| **6103** | `chrome-2:6080` | noVNC viewer (slot 2) | ✅ User-driven login |
+| **6101** | `chrome-0:6080` | Kasm browser viewer (slot 0) | ✅ User-driven login |
+| **6102** | `chrome-1:6080` | Kasm browser viewer (slot 1) | ✅ User-driven login |
+| **6103** | `chrome-2:6080` | Kasm browser viewer (slot 2) | ✅ User-driven login |
 | 9090 | `server:9090` | Prometheus metrics | Optional |
 
 > **Note:** All external ports live in the `610X` range to avoid collisions with other services.
@@ -45,19 +45,18 @@ All environment variables use the `IMAUTH_` prefix.
 |----------|---------|-------------|
 | `IMAUTH_ENCRYPTION_KEY` | — | **Required.** 32-byte base64-encoded AES-256 key |
 | `IMAUTH_API_KEY` | — | gRPC API key for client auth |
-| `IMAUTH_SERVER_HOSTNAME` | `localhost` | Hostname used in noVNC viewer URLs |
+| `IMAUTH_SERVER_HOSTNAME` | `localhost` | Hostname used in Kasm browser viewer URLs |
 | `IMAUTH_GRPC_HOST_PORT` | `6100` | Host port mapped to gRPC (50051) |
-| `IMAUTH_NOVNC_PORT_0` | `6101` | Host port for noVNC slot 0 |
-| `IMAUTH_NOVNC_PORT_1` | `6102` | Host port for noVNC slot 1 |
-| `IMAUTH_NOVNC_PORT_2` | `6103` | Host port for noVNC slot 2 |
-| `IMAUTH_VNC_PASSWORD` | `imauth` | Password for noVNC browser access |
+| `IMAUTH_BROWSER_VIEWER_PORT_0` | `6101` | Host port for browser viewer slot 0 |
+| `IMAUTH_BROWSER_VIEWER_PORT_1` | `6102` | Host port for browser viewer slot 1 |
+| `IMAUTH_BROWSER_VIEWER_PORT_2` | `6103` | Host port for browser viewer slot 2 |
 | `IMAUTH_METRICS_PORT` | `9090` | Host port for Prometheus metrics |
 
 ## Running Multiple Instances on One Host
 
 Assign ports in non-overlapping groups:
 
-| Instance | gRPC | noVNC ports |
+| Instance | gRPC | viewer ports |
 |----------|------|-------------|
 | Instance A | 6100 | 6101–6103 |
 | Instance B | 6110 | 6111–6113 |

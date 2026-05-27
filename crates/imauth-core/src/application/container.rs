@@ -78,16 +78,10 @@ impl AppContainer {
             ));
         }
 
-        let novnc_base_url = config.novnc_base_url().unwrap_or_default();
-        let novnc_ports = config.novnc_ports();
         let cdp_urls = config.cdp_urls();
         let viewer_urls = config.browser_viewer_urls();
-        let browser: Arc<dyn BrowserSessionFactory> = Arc::new(PooledBrowserFactory::new(
-            cdp_urls,
-            &novnc_base_url,
-            &novnc_ports,
-            &viewer_urls,
-        ));
+        let browser: Arc<dyn BrowserSessionFactory> =
+            Arc::new(PooledBrowserFactory::new(cdp_urls, &viewer_urls));
 
         let _snapshot: Arc<dyn SnapshotSink> = Arc::new(FsSnapshotSink::new(config.snapshot_dir()));
 

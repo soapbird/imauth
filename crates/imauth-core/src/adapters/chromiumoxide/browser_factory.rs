@@ -84,12 +84,7 @@ pub struct PooledBrowserFactory {
 }
 
 impl PooledBrowserFactory {
-    pub fn new(
-        cdp_urls: Vec<String>,
-        novnc_base_url: &str,
-        novnc_ports: &[u16],
-        viewer_urls: &[String],
-    ) -> Self {
+    pub fn new(cdp_urls: Vec<String>, viewer_urls: &[String]) -> Self {
         let slots = cdp_urls
             .iter()
             .enumerate()
@@ -98,12 +93,8 @@ impl PooledBrowserFactory {
                     viewer_urls[i].clone()
                 } else if !viewer_urls.is_empty() {
                     viewer_urls[viewer_urls.len() - 1].clone()
-                } else if i < novnc_ports.len() {
-                    legacy_novnc_url(novnc_base_url, novnc_ports[i])
-                } else if novnc_ports.is_empty() {
-                    novnc_base_url.to_string()
                 } else {
-                    legacy_novnc_url(novnc_base_url, novnc_ports[novnc_ports.len() - 1])
+                    String::new()
                 };
                 Arc::new(ChromeSlot::new(cdp_url.clone(), viewer_url))
             })
@@ -111,10 +102,6 @@ impl PooledBrowserFactory {
 
         Self { slots }
     }
-}
-
-fn legacy_novnc_url(base_url: &str, port: u16) -> String {
-    format!("{base_url}:{port}/vnc.html?autoconnect=true&clipboard_seamless=1&clipboard_up=1&clipboard_down=1")
 }
 
 #[async_trait]
@@ -186,7 +173,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_viewer_urls_override_legacy_novnc_urls() {
+    fn explicit_viewer_urls_are_used_without_legacy_novnc_fallback() {
         let viewer_urls = vec![
             "http://localhost:6101/index.html".to_string(),
             "http://localhost:6102/index.html".to_string(),
@@ -198,8 +185,6 @@ mod tests {
                 "http://chrome-1:9223".to_string(),
                 "http://chrome-2:9223".to_string(),
             ],
-            "http://localhost",
-            &[6101, 6102, 6103],
             &viewer_urls,
         );
 
@@ -218,18 +203,10 @@ mod tests {
     }
 
     #[test]
-    fn legacy_novnc_url_construction_is_preserved() {
-        let factory = PooledBrowserFactory::new(
-            vec!["http://chrome-0:9222".to_string()],
-            "http://localhost",
-            &[6101],
-            &[],
-        );
+    fn empty_viewer_urls_do_not_generate_legacy_novnc_urls() {
+        let factory = PooledBrowserFactory::new(vec!["http://chrome-0:9223".to_string()], &[]);
 
-        assert_eq!(
-            factory.viewer_url().as_deref(),
-            Some("http://localhost:6101/vnc.html?autoconnect=true&clipboard_seamless=1&clipboard_up=1&clipboard_down=1")
-        );
+        assert_eq!(factory.viewer_url().as_deref(), Some(""));
     }
 }
 

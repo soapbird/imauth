@@ -155,9 +155,6 @@ services:
           proxy_read_timeout 86400;
           proxy_send_timeout 86400;
 
-          sub_filter_once off;
-          sub_filter_types text/html;
-          sub_filter '</head>' '<style>#noVNC_fallback_error{display:none!important}</style></head>';
 
           location / {
             proxy_pass http://chrome-0:6901;
@@ -170,7 +167,7 @@ services:
         EOF
         exec nginx -g 'daemon off;'
     ports:
-      - "${IMAUTH_NOVNC_PORT_0:-6101}:8080"
+      - "${IMAUTH_BROWSER_VIEWER_PORT_0:-6101}:8080"
 
   chrome-1:
     container_name: services-imauth-chrome-1
@@ -313,9 +310,6 @@ services:
           proxy_read_timeout 86400;
           proxy_send_timeout 86400;
 
-          sub_filter_once off;
-          sub_filter_types text/html;
-          sub_filter '</head>' '<style>#noVNC_fallback_error{display:none!important}</style></head>';
 
           location / {
             proxy_pass http://chrome-1:6901;
@@ -328,7 +322,7 @@ services:
         EOF
         exec nginx -g 'daemon off;'
     ports:
-      - "${IMAUTH_NOVNC_PORT_1:-6102}:8080"
+      - "${IMAUTH_BROWSER_VIEWER_PORT_1:-6102}:8080"
 
   chrome-2:
     container_name: services-imauth-chrome-2
@@ -471,9 +465,6 @@ services:
           proxy_read_timeout 86400;
           proxy_send_timeout 86400;
 
-          sub_filter_once off;
-          sub_filter_types text/html;
-          sub_filter '</head>' '<style>#noVNC_fallback_error{display:none!important}</style></head>';
 
           location / {
             proxy_pass http://chrome-2:6901;
@@ -486,7 +477,7 @@ services:
         EOF
         exec nginx -g 'daemon off;'
     ports:
-      - "${IMAUTH_NOVNC_PORT_2:-6103}:8080"
+      - "${IMAUTH_BROWSER_VIEWER_PORT_2:-6103}:8080"
 
   server:
     container_name: services-imauth-server
@@ -499,9 +490,7 @@ services:
       - IMAUTH_DATA_DIR=/data/.imauth/data
       - IMAUTH_ENCRYPTION_KEY=${IMAUTH_ENCRYPTION_KEY}
       - IMAUTH_API_KEY=${IMAUTH_API_KEY}
-      - IMAUTH_NOVNC_BASE_URL=http://${IMAUTH_SERVER_HOSTNAME:-localhost}
-      - IMAUTH_NOVNC_PORTS=${IMAUTH_NOVNC_PORT_0:-6101},${IMAUTH_NOVNC_PORT_1:-6102},${IMAUTH_NOVNC_PORT_2:-6103}
-      - IMAUTH_BROWSER_VIEWER_URLS=http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_NOVNC_PORT_0:-6101}/index.html,http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_NOVNC_PORT_1:-6102}/index.html,http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_NOVNC_PORT_2:-6103}/index.html
+      - IMAUTH_BROWSER_VIEWER_URLS=http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_BROWSER_VIEWER_PORT_0:-6101}/index.html,http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_BROWSER_VIEWER_PORT_1:-6102}/index.html,http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_BROWSER_VIEWER_PORT_2:-6103}/index.html
       - IMAUTH_DATABASE_URL=postgres://imauth:imauth@postgres/imauth
     volumes:
       - ../imauth-data/imauth:/data/.imauth

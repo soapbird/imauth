@@ -299,12 +299,12 @@ mod tests {
         factory.expect_acquire().return_once(|| {
             let mut session = MockBrowserSession::new();
             session.expect_new_page().return_once(move || Ok(page));
-            session.expect_viewer_url().returning(|| "http://localhost:6080/vnc.html?autoconnect=true".to_string());
+            session.expect_viewer_url().returning(|| "http://localhost:6101/index.html".to_string());
             Ok(Box::new(session))
         });
         factory
             .expect_viewer_url()
-            .returning(|| Some("http://localhost:6080".to_string()));
+            .returning(|| Some("http://localhost:6101/index.html".to_string()));
         factory
     }
 
@@ -333,7 +333,7 @@ mod tests {
         let waiting = rx.recv().await.expect("waiting event");
         match &waiting {
             LoginEvent::WaitingForUser(_, url) => {
-                assert!(url.contains("6080"));
+                assert!(url.ends_with("/index.html"));
             }
             _ => panic!("expected WaitingForUser, got {:?}", waiting),
         }
