@@ -7,13 +7,12 @@ use chromiumoxide::Browser;
 use futures::StreamExt;
 use metrics::histogram;
 use std::sync::Arc;
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// A single Chrome instance with its own CDP connection, semaphore, and viewer URL.
 pub struct ChromeSlot {
     cdp_url: String,
     semaphore: Arc<Semaphore>,
-    browsers: Arc<Mutex<Vec<Browser>>>,
     viewer_url: String,
 }
 
@@ -22,7 +21,6 @@ impl ChromeSlot {
         Self {
             cdp_url,
             semaphore: Arc::new(Semaphore::new(1)), // 1 concurrent session per slot
-            browsers: Arc::new(Mutex::new(Vec::new())),
             viewer_url,
         }
     }
@@ -111,22 +109,13 @@ impl BrowserSessionFactory for PooledBrowserFactory {
         // Try each slot in order; first available wins.
         for slot in &self.slots {
             if let Ok(permit) = slot.semaphore.clone().try_acquire_owned() {
-                let mut browsers = slot.browsers.lock().await;
-                let browser = match browsers.pop() {
-                    Some(b) => b,
-                    None => {
-                        drop(browsers);
-                        match ChromeSlot::connect(&slot.cdp_url).await {
-                            Ok(b) => b,
-                            Err(_e) => continue, // try next slot
-                        }
-                    }
+                let browser = match ChromeSlot::connect(&slot.cdp_url).await {
+                    Ok(b) => b,
+                    Err(_e) => continue, // try next slot
                 };
 
                 return Ok(Box::new(ChromiumOxideBrowserSession {
                     browser: Some(browser),
-                    pool: slot.browsers.clone(),
-                    max_size: 1,
                     viewer_url: slot.viewer_url.clone(),
                     _permit: permit,
                 }));
@@ -142,20 +131,11 @@ impl BrowserSessionFactory for PooledBrowserFactory {
             .await
             .map_err(|e| ImauthError::Browser(format!("All browser slots busy: {e}")))?;
 
-        let mut browsers = slot.browsers.lock().await;
-        let browser = match browsers.pop() {
-            Some(b) => b,
-            None => {
-                drop(browsers);
-                ChromeSlot::connect(&slot.cdp_url).await?
-            }
-        };
+        let browser = ChromeSlot::connect(&slot.cdp_url).await?;
 
         histogram!("browser_pool_wait_seconds").record(start.elapsed().as_secs_f64());
         Ok(Box::new(ChromiumOxideBrowserSession {
             browser: Some(browser),
-            pool: slot.browsers.clone(),
-            max_size: 1,
             viewer_url: slot.viewer_url.clone(),
             _permit: permit,
         }))
@@ -210,11 +190,9 @@ mod tests {
     }
 }
 
-/// A held browser that returns itself to the pool on drop (RAII).
+/// A held browser connection for a single login attempt (RAII).
 pub struct ChromiumOxideBrowserSession {
     browser: Option<Browser>,
-    pool: Arc<Mutex<Vec<Browser>>>,
-    max_size: usize,
     viewer_url: String,
     _permit: OwnedSemaphorePermit,
 }
@@ -268,13 +246,6 @@ impl Drop for ChromiumOxideBrowserSession {
             tracing::warn!("Tokio runtime gone during browser drop; browser will close");
             return;
         }
-        let pool = self.pool.clone();
-        let max_size = self.max_size;
-        tokio::spawn(async move {
-            let mut browsers = pool.lock().await;
-            if browsers.len() < max_size {
-                browsers.push(browser);
-            }
-        });
+        drop(browser);
     }
 }
