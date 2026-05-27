@@ -244,11 +244,10 @@ impl LoginUseCase {
 mod tests {
     use super::*;
     use crate::domain::session::Cookie;
-    use crate::ports::browser::{MockBrowserSession, MockBrowserSessionFactory, MockPageDriver};
+    use crate::ports::browser::{MockBrowserSession, MockBrowserSessionFactory};
     use crate::ports::repository::{MockCookieRepository, MockSessionRepository};
     use crate::Result as AppResult;
     use async_trait::async_trait;
-    use std::collections::HashMap;
 
     /// Test double — returns a session cookie on the first poll.
     struct ImmediateCookiePageDriver;
@@ -267,30 +266,6 @@ mod tests {
                 http_only: true,
                 secure: true,
             }])
-        }
-        async fn screenshot(&self) -> AppResult<Vec<u8>> {
-            Ok(vec![])
-        }
-        async fn content_html(&self) -> AppResult<String> {
-            Ok(String::new())
-        }
-        async fn close(&self) -> AppResult<()> {
-            Ok(())
-        }
-        async fn set_mobile_viewport(&self) -> AppResult<()> {
-            Ok(())
-        }
-    }
-
-    /// Test double — never returns a session cookie.
-    struct NoCookiePageDriver;
-    #[async_trait]
-    impl crate::ports::browser::PageDriver for NoCookiePageDriver {
-        async fn navigate(&self, _url: &str, _timeout_secs: u64) -> AppResult<()> {
-            Ok(())
-        }
-        async fn get_cookies(&self) -> AppResult<Vec<Cookie>> {
-            Ok(vec![])
         }
         async fn screenshot(&self) -> AppResult<Vec<u8>> {
             Ok(vec![])

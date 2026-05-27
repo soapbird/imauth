@@ -3,13 +3,13 @@ use crate::ports::browser::{BrowserSession, BrowserSessionFactory, PageDriver};
 use crate::ImauthError;
 use crate::Result;
 use async_trait::async_trait;
-use metrics::histogram;
 use chromiumoxide::Browser;
 use futures::StreamExt;
+use metrics::histogram;
 use std::sync::Arc;
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 
-/// A single Chrome instance with its own CDP connection, semaphore, and noVNC URL.
+/// A single Chrome instance with its own CDP connection, semaphore, and viewer URL.
 pub struct ChromeSlot {
     cdp_url: String,
     semaphore: Arc<Semaphore>,
@@ -42,10 +42,11 @@ impl ChromeSlot {
             return Ok(cdp_url.to_string());
         }
 
-        let addrs: Vec<_> = tokio::net::lookup_host(format!("{}:{}", host, url.port().unwrap_or(9222)))
-            .await
-            .map_err(|e| ImauthError::Browser(format!("Failed to resolve {host}: {e}")))?
-            .collect();
+        let addrs: Vec<_> =
+            tokio::net::lookup_host(format!("{}:{}", host, url.port().unwrap_or(9222)))
+                .await
+                .map_err(|e| ImauthError::Browser(format!("Failed to resolve {host}: {e}")))?
+                .collect();
 
         let addr = addrs
             .first()
@@ -77,27 +78,32 @@ impl ChromeSlot {
 }
 
 /// Pool of Chrome slots. Each slot is an independent Chrome instance with its
-/// own noVNC URL. Login acquires a free slot, login completion releases it.
+/// own viewer URL. Login acquires a free slot, login completion releases it.
 pub struct PooledBrowserFactory {
     slots: Vec<Arc<ChromeSlot>>,
 }
 
 impl PooledBrowserFactory {
-    pub fn new(cdp_urls: Vec<String>, novnc_base_url: &str, novnc_ports: &[u16]) -> Self {
+    pub fn new(
+        cdp_urls: Vec<String>,
+        novnc_base_url: &str,
+        novnc_ports: &[u16],
+        viewer_urls: &[String],
+    ) -> Self {
         let slots = cdp_urls
             .iter()
             .enumerate()
             .map(|(i, cdp_url)| {
-                let viewer_url = if i < novnc_ports.len() {
-                    format!("{}:{}/vnc.html?autoconnect=true&clipboard_seamless=1&clipboard_up=1&clipboard_down=1", novnc_base_url, novnc_ports[i])
+                let viewer_url = if i < viewer_urls.len() {
+                    viewer_urls[i].clone()
+                } else if !viewer_urls.is_empty() {
+                    viewer_urls[viewer_urls.len() - 1].clone()
+                } else if i < novnc_ports.len() {
+                    legacy_novnc_url(novnc_base_url, novnc_ports[i])
                 } else if novnc_ports.is_empty() {
                     novnc_base_url.to_string()
                 } else {
-                    format!(
-                        "{}:{}/vnc.html?autoconnect=true&clipboard_seamless=1&clipboard_up=1&clipboard_down=1",
-                        novnc_base_url,
-                        novnc_ports[novnc_ports.len() - 1]
-                    )
+                    legacy_novnc_url(novnc_base_url, novnc_ports[novnc_ports.len() - 1])
                 };
                 Arc::new(ChromeSlot::new(cdp_url.clone(), viewer_url))
             })
@@ -105,6 +111,10 @@ impl PooledBrowserFactory {
 
         Self { slots }
     }
+}
+
+fn legacy_novnc_url(base_url: &str, port: u16) -> String {
+    format!("{base_url}:{port}/vnc.html?autoconnect=true&clipboard_seamless=1&clipboard_up=1&clipboard_down=1")
 }
 
 #[async_trait]
@@ -168,6 +178,58 @@ impl BrowserSessionFactory for PooledBrowserFactory {
         // Return the first slot's URL as default; actual per-slot URL
         // is returned via the session's viewer_url field.
         self.slots.first().map(|s| s.viewer_url.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_viewer_urls_override_legacy_novnc_urls() {
+        let viewer_urls = vec![
+            "http://localhost:6101/index.html".to_string(),
+            "http://localhost:6102/index.html".to_string(),
+            "http://localhost:6103/index.html".to_string(),
+        ];
+        let factory = PooledBrowserFactory::new(
+            vec![
+                "http://chrome-0:9223".to_string(),
+                "http://chrome-1:9223".to_string(),
+                "http://chrome-2:9223".to_string(),
+            ],
+            "http://localhost",
+            &[6101, 6102, 6103],
+            &viewer_urls,
+        );
+
+        assert_eq!(
+            factory.slots[0].viewer_url,
+            "http://localhost:6101/index.html"
+        );
+        assert_eq!(
+            factory.slots[1].viewer_url,
+            "http://localhost:6102/index.html"
+        );
+        assert_eq!(
+            factory.slots[2].viewer_url,
+            "http://localhost:6103/index.html"
+        );
+    }
+
+    #[test]
+    fn legacy_novnc_url_construction_is_preserved() {
+        let factory = PooledBrowserFactory::new(
+            vec!["http://chrome-0:9222".to_string()],
+            "http://localhost",
+            &[6101],
+            &[],
+        );
+
+        assert_eq!(
+            factory.viewer_url().as_deref(),
+            Some("http://localhost:6101/vnc.html?autoconnect=true&clipboard_seamless=1&clipboard_up=1&clipboard_down=1")
+        );
     }
 }
 

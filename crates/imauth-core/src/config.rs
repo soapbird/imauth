@@ -26,6 +26,10 @@ pub struct BrowserConfig {
     /// Comma-separated noVNC port numbers, one per Chrome instance.
     #[serde(default)]
     pub novnc_ports: Option<String>,
+    /// Comma-separated browser viewer URLs, one per Chrome instance.
+    /// When set, overrides noVNC URL construction.
+    #[serde(default)]
+    pub viewer_urls: Option<String>,
     #[serde(default = "default_login_timeout_secs")]
     pub login_timeout_secs: u64,
 }
@@ -129,6 +133,7 @@ impl Default for Config {
                 page_timeout_secs: default_page_timeout_secs(),
                 novnc_base_url: None,
                 novnc_ports: None,
+                viewer_urls: None,
                 login_timeout_secs: default_login_timeout_secs(),
             },
             storage: StorageConfig {
@@ -183,6 +188,9 @@ impl Config {
         }
         if let Ok(ports) = std::env::var("IMAUTH_NOVNC_PORTS") {
             self.browser.novnc_ports = Some(ports);
+        }
+        if let Ok(urls) = std::env::var("IMAUTH_BROWSER_VIEWER_URLS") {
+            self.browser.viewer_urls = Some(urls);
         }
         if let Ok(secs) = std::env::var("IMAUTH_LOGIN_TIMEOUT_SECS") {
             if let Ok(s) = secs.parse() {
@@ -243,6 +251,17 @@ impl Config {
         }
     }
 
+    pub fn browser_viewer_urls(&self) -> Vec<String> {
+        if let Some(ref urls) = self.browser.viewer_urls {
+            urls.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        } else {
+            vec![]
+        }
+    }
+
     pub fn max_pool_size(&self) -> usize {
         self.browser.max_pool_size
     }
@@ -293,7 +312,9 @@ impl Config {
     }
 
     pub fn metrics_port(&self) -> u16 {
-        self.server.metrics_port.unwrap_or_else(default_metrics_port)
+        self.server
+            .metrics_port
+            .unwrap_or_else(default_metrics_port)
     }
 }
 
@@ -319,8 +340,12 @@ mod tests {
         for k in [
             "IMAUTH_GRPC_ADDR",
             "IMAUTH_CDP_URL",
+            "IMAUTH_CDP_URLS",
             "IMAUTH_ENCRYPTION_KEY",
             "IMAUTH_DATA_DIR",
+            "IMAUTH_NOVNC_BASE_URL",
+            "IMAUTH_NOVNC_PORTS",
+            "IMAUTH_BROWSER_VIEWER_URLS",
             "IMAUTH_DATABASE_URL",
             "IMAUTH_METRICS_PORT",
         ] {
@@ -345,10 +370,7 @@ mod tests {
         let mut cfg = Config::default();
         cfg.storage.data_dir = PathBuf::from("/tmp/imauth-test");
         assert_eq!(cfg.db_path(), PathBuf::from("/tmp/imauth-test/imauth.db"));
-        assert_eq!(
-            cfg.cookies_dir(),
-            PathBuf::from("/tmp/imauth-test/cookies")
-        );
+        assert_eq!(cfg.cookies_dir(), PathBuf::from("/tmp/imauth-test/cookies"));
         assert_eq!(
             cfg.snapshot_dir(),
             PathBuf::from("/tmp/imauth-test/snapshots")
@@ -423,6 +445,14 @@ max_pool_size = 7
 
         std::env::set_var("IMAUTH_GRPC_ADDR", "10.0.0.1:7000");
         std::env::set_var("IMAUTH_CDP_URL", "http://chrome:9223");
+        std::env::set_var(
+            "IMAUTH_CDP_URLS",
+            "http://chrome-0:9223,http://chrome-1:9223",
+        );
+        std::env::set_var(
+            "IMAUTH_BROWSER_VIEWER_URLS",
+            "http://localhost:6101/index.html,http://localhost:6102/index.html",
+        );
         std::env::set_var("IMAUTH_ENCRYPTION_KEY", "test-key-from-env");
         std::env::set_var("IMAUTH_DATA_DIR", "/var/lib/imauth-test");
 
@@ -432,11 +462,19 @@ max_pool_size = 7
 
         assert_eq!(cfg.grpc_addr(), "10.0.0.1:7000");
         assert_eq!(cfg.cdp_url(), "http://chrome:9223");
-        assert_eq!(cfg.encryption_key(), Some("test-key-from-env"));
         assert_eq!(
-            cfg.storage.data_dir,
-            PathBuf::from("/var/lib/imauth-test")
+            cfg.cdp_urls(),
+            vec!["http://chrome-0:9223", "http://chrome-1:9223"]
         );
+        assert_eq!(
+            cfg.browser_viewer_urls(),
+            vec![
+                "http://localhost:6101/index.html",
+                "http://localhost:6102/index.html"
+            ]
+        );
+        assert_eq!(cfg.encryption_key(), Some("test-key-from-env"));
+        assert_eq!(cfg.storage.data_dir, PathBuf::from("/var/lib/imauth-test"));
 
         clear_env();
     }
@@ -501,6 +539,9 @@ max_pool_size = 7
         assert_eq!(parsed.grpc_addr(), original.grpc_addr());
         assert_eq!(parsed.cdp_url(), original.cdp_url());
         assert_eq!(parsed.max_pool_size(), original.max_pool_size());
-        assert_eq!(parsed.refresh_interval_secs(), original.refresh_interval_secs());
+        assert_eq!(
+            parsed.refresh_interval_secs(),
+            original.refresh_interval_secs()
+        );
     }
 }
