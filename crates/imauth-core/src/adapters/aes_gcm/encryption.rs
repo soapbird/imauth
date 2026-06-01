@@ -66,7 +66,12 @@ impl EncryptionService for AesGcmEncryptionService {
     }
 
     fn decrypt(&self, ciphertext: &str) -> Result<String> {
-        let data = BASE64.decode(ciphertext)?;
+        // Try standard base64 first (encrypt() output), then URL-safe with padding
+        // (imlinks legacy ciphertext), then URL-safe without padding.
+        let data = BASE64
+            .decode(ciphertext)
+            .or_else(|_| URL_SAFE.decode(ciphertext))
+            .or_else(|_| URL_SAFE_NO_PAD.decode(ciphertext))?;
         if data.len() < 12 {
             return Err(ImauthError::Encryption("Ciphertext too short".to_string()));
         }
@@ -192,5 +197,88 @@ mod tests {
     fn standard_key_has_padding() {
         // Standard base64 always has = padding for non-multiple-of-3 input.
         assert!(STANDARD_KEY.contains('='));
+    }
+
+    // -------------------------------------------------------------------------
+    // URL-safe ciphertext decode tests
+    // -------------------------------------------------------------------------
+
+    /// Transform a standard-base64 ciphertext to URL-safe with padding.
+    fn to_url_safe_padded(ct: &str) -> String {
+        ct.replace('+', "-").replace('/', "_")
+    }
+
+    /// Transform a standard-base64 ciphertext to URL-safe without padding.
+    fn to_url_safe_no_pad(ct: &str) -> String {
+        to_url_safe_padded(ct).trim_end_matches('=').to_string()
+    }
+
+    #[test]
+    fn decrypt_accepts_standard_base64_ciphertext() {
+        // Existing behavior: encrypt() outputs standard base64, decrypt reads it.
+        let svc = AesGcmEncryptionService::from_key(STANDARD_KEY).unwrap();
+        let ct = svc.encrypt("hello world").unwrap();
+        assert_eq!(svc.decrypt(&ct).unwrap(), "hello world");
+        // Verify it's actually standard (no - or _)
+        assert!(!ct.contains('-') && !ct.contains('_'));
+    }
+
+    #[test]
+    fn decrypt_accepts_url_safe_padded_ciphertext() {
+        // Encrypt with standard base64, then transform ciphertext to URL-safe padded.
+        let svc = AesGcmEncryptionService::from_key(STANDARD_KEY).unwrap();
+        let ct_standard = svc.encrypt("hello world").unwrap();
+        let ct_url_padded = to_url_safe_padded(&ct_standard);
+        // Sanity: URL-safe padded form differs from standard (due to +/- mapping)
+        assert_ne!(ct_standard, ct_url_padded);
+        // Note: padding '=' only appears when the base64 input is not a multiple of 3 bytes.
+        // The nonce(12) + GCM tag(16) = 28 bytes → 28*4/3 ≈ 37.3 → 39 base64 chars (no pad needed).
+        // We only need to verify the '-' and '_' replacement happened.
+        assert!(ct_url_padded.contains('-') || ct_url_padded.contains('_'));
+        assert!(!ct_url_padded.contains('+')); // + replaced with -
+        assert!(!ct_url_padded.contains('/')); // / replaced with _
+        assert_eq!(svc.decrypt(&ct_url_padded).unwrap(), "hello world");
+    }
+
+    #[test]
+    fn decrypt_accepts_url_safe_no_pad_ciphertext() {
+        // Encrypt with standard base64, then transform ciphertext to URL-safe no-pad.
+        let svc = AesGcmEncryptionService::from_key(STANDARD_KEY).unwrap();
+        let ct_standard = svc.encrypt("hello world").unwrap();
+        let ct_url_no_pad = to_url_safe_no_pad(&ct_standard);
+        // Sanity: no-pad form has no trailing =
+        assert!(!ct_url_no_pad.contains('='));
+        assert_eq!(svc.decrypt(&ct_url_no_pad).unwrap(), "hello world");
+    }
+
+    #[test]
+    fn decrypt_rejects_invalid_base64() {
+        let svc = AesGcmEncryptionService::from_key(STANDARD_KEY).unwrap();
+        let result = svc.decrypt("not-valid-base64!!!");
+        assert!(result.is_err());
+        let is_enc_err = matches!(result, Err(crate::ImauthError::Encryption(_)));
+        assert!(is_enc_err, "expected Encryption error for invalid base64");
+    }
+
+    #[test]
+    fn decrypt_rejects_too_short_decoded_data() {
+        let svc = AesGcmEncryptionService::from_key(STANDARD_KEY).unwrap();
+        // 11 bytes decoded (< 12 nonce + 0 ciphertext) — standard base64 of 11 bytes
+        let result = svc.decrypt("aGVsbG8gd29ybGQ"); // "hello world" base64, 11 bytes
+        assert!(result.is_err());
+        let is_short_err = matches!(&result, Err(crate::ImauthError::Encryption(msg)) if msg.contains("too short"));
+        assert!(is_short_err, "expected 'too short' error for short ciphertext");
+    }
+
+    #[test]
+    fn decrypt_url_safe_padded_and_no_pad_round_trip() {
+        // Use URL-safe padded key (imlinks format) and verify encrypt→decrypt with both URL-safe forms.
+        let svc = AesGcmEncryptionService::from_key(URL_SAFE_PADDED_KEY).unwrap();
+        let ct = svc.encrypt("imlinks payload").unwrap();
+        // encrypt() always outputs standard base64 — decrypt accepts it via first decoder
+        assert_eq!(svc.decrypt(&ct).unwrap(), "imlinks payload");
+        // Now verify the URL-safe variants of the same ciphertext also decrypt
+        assert_eq!(svc.decrypt(&to_url_safe_padded(&ct)).unwrap(), "imlinks payload");
+        assert_eq!(svc.decrypt(&to_url_safe_no_pad(&ct)).unwrap(), "imlinks payload");
     }
 }
