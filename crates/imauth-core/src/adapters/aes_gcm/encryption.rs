@@ -7,7 +7,7 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
 use rand::Rng;
 
 pub struct AesGcmEncryptionService {
@@ -16,10 +16,11 @@ pub struct AesGcmEncryptionService {
 
 impl AesGcmEncryptionService {
     pub fn from_key(key: &str) -> Result<Self> {
-        // Try standard base64 first, then URL-safe base64 (used by imlinks).
-        // URL-safe keys are 44 chars (32 bytes + no padding) vs standard 44 chars with "=" padding.
+        // Try standard base64 first, then URL-safe with padding (used by imlinks),
+        // then URL-safe without padding. Keys are 44 chars for 32 bytes.
         let key_bytes = BASE64
             .decode(key)
+            .or_else(|_| URL_SAFE.decode(key))
             .or_else(|_| URL_SAFE_NO_PAD.decode(key))?;
         if key_bytes.len() != 32 {
             return Err(ImauthError::Encryption(
@@ -91,6 +92,10 @@ mod tests {
     /// The `_` at position 22 is what distinguishes it from standard base64.
     const URL_SAFE_KEY: &str = "kZiepW_G5hqnFgYH5f1GpIm87XhdUT6gIgbsxcXTj_E";
 
+    /// Same 32 bytes as URL_SAFE_KEY but with `=` padding appended.
+    /// This is the form imlinks generates (length 44, URL-safe alphabet with padding).
+    const URL_SAFE_PADDED_KEY: &str = "kZiepW_G5hqnFgYH5f1GpIm87XhdUT6gIgbsxcXTj_E=";
+
     #[test]
     fn from_config_rejects_missing_key() {
         let config = Config::default();
@@ -134,6 +139,17 @@ mod tests {
         let svc = AesGcmEncryptionService::from_key(URL_SAFE_KEY).unwrap();
         let ct = svc.encrypt("hello").unwrap();
         assert_eq!(svc.decrypt(&ct).unwrap(), "hello");
+    }
+
+    #[test]
+    fn from_key_accepts_url_safe_padded_base64() {
+        // URL-safe with `=` padding appended (imlinks key format, length 44).
+        // Uses `_` (position 6 and 41) which distinguishes it from standard base64.
+        assert!(URL_SAFE_PADDED_KEY.contains('='));
+        assert!(URL_SAFE_PADDED_KEY.contains('_'));
+        let svc = AesGcmEncryptionService::from_key(URL_SAFE_PADDED_KEY).unwrap();
+        let ct = svc.encrypt("world").unwrap();
+        assert_eq!(svc.decrypt(&ct).unwrap(), "world");
     }
 
     #[test]
