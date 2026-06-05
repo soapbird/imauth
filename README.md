@@ -64,10 +64,64 @@ Assign ports in non-overlapping groups:
 
 Update `.env` accordingly before starting each stack.
 
+## Container Images
+
+Release images are published to GitHub Container Registry (GHCR) on every `v*` tag:
+
+| Image | Contents |
+|-------|----------|
+| `ghcr.io/soapbird/imauth` | gRPC server + CLI (slim runtime) |
+| `ghcr.io/soapbird/imauth-chrome` | Chromium + Kasm browser viewer sidecar |
+
+```bash
+# Pull a specific release (or :latest)
+docker pull ghcr.io/soapbird/imauth:v0.3.0
+docker pull ghcr.io/soapbird/imauth-chrome:v0.3.0
+```
+
+> GHCR images are private by default — authenticate first with
+> `echo $GITHUB_TOKEN | docker login ghcr.io -u <username> --password-stdin`
+> (token needs `read:packages`).
+
+Local image builds use the Makefile:
+
+```bash
+make docker         # build ghcr.io/soapbird/imauth
+make docker-chrome  # build ghcr.io/soapbird/imauth-chrome
+make deploy-all     # buildx multi-arch build + push both images
+```
+
 ## SDKs
 
-- **Python**: `sdk/python/`
-- **TypeScript**: `sdk/typescript/`
+Source lives in `sdk/python/` and `sdk/typescript/`.
+
+### Python — install from a GitHub Release
+
+The wheel is built (with proto stubs regenerated) and attached to each GitHub
+Release, so install it directly without cloning or running `protoc`:
+
+```bash
+# Replace the tag/version with the one from the Releases page
+pip install https://github.com/soapbird/imauth/releases/download/v0.3.0/imauth-0.3.0-py3-none-any.whl
+```
+
+```python
+from imauth import ImAuthClient
+
+client = ImAuthClient("localhost:6100", api_key="<IMAUTH_API_KEY>")
+for event in client.login(platform="instagram", username="...", password="..."):
+    print(event)
+```
+
+> Installing from source (`pip install "git+https://github.com/soapbird/imauth.git#subdirectory=sdk/python"`)
+> is **not** supported: the generated `imauth/v1/*_pb2.py` stubs are gitignored
+> and only produced during the release build. Use the published wheel instead.
+
+### TypeScript
+
+```bash
+npm install   # from sdk/typescript/
+```
 
 ## Development
 

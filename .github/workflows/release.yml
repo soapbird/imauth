@@ -5,7 +5,7 @@ on:
     tags: ["v*"]
 
 jobs:
-  build-rust:
+  build:
     name: build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -83,7 +83,7 @@ jobs:
             ghcr.io/${{ github.repository }}${{ matrix.image.suffix }}:${{ github.ref_name }}
             ghcr.io/${{ github.repository }}${{ matrix.image.suffix }}:latest
 
-  publish-python-sdk:
+  publish-sdk-python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -110,7 +110,7 @@ jobs:
           name: python-sdk
           path: sdk/python/dist/*
 
-  publish-ts-sdk:
+  publish-sdk-ts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -129,7 +129,7 @@ jobs:
           path: sdk/typescript/dist/
 
   github-release:
-    needs: [build-rust]
+    needs: [build, publish-sdk-python, publish-sdk-ts]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -141,5 +141,7 @@ jobs:
       - name: create release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*/*.tar.gz
+          files: |
+            artifacts/*/*.tar.gz
+            artifacts/python-sdk/*
           generate_release_notes: true
