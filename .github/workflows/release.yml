@@ -58,6 +58,14 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - suffix: ""
+            dockerfile: Dockerfile
+          - suffix: "-chrome"
+            dockerfile: Dockerfile.chrome
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -69,10 +77,11 @@ jobs:
       - uses: docker/build-push-action@v5
         with:
           context: .
+          file: ${{ matrix.image.dockerfile }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}${{ matrix.image.suffix }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}${{ matrix.image.suffix }}:latest
 
   publish-python-sdk:
     runs-on: ubuntu-latest

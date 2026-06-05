@@ -1,0 +1,17 @@
+.git
+.github
+.kilo
+.gstack
+target
+**/target
+.env
+*.db
+*.sqlite
+*.sqlite3
+imauth-data
+sdk/python/.venv
+sdk/python/dist
+sdk/python/build
+sdk/python/*.egg-info
+sdk/typescript/node_modules
+sdk/typescript/dist
