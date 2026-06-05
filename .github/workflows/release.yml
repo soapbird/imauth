@@ -98,9 +98,9 @@ jobs:
         working-directory: sdk/python
         run: |
           python -m grpc_tools.protoc \
-            -Iproto=../../proto \
-            --python_out=imauth \
-            --grpc_python_out=imauth \
+            -I../../proto \
+            --python_out=. \
+            --grpc_python_out=. \
             ../../proto/imauth/v1/*.proto
       - name: build wheel
         working-directory: sdk/python
