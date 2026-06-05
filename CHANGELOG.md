@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-06-05
+
+### Removed
+- **Breaking:** PostgreSQL storage backend and all related adapters (`PostgresCookieRepository`, `PostgresCredentialRepository`, `PostgresSessionRepository`, `PostgresRefreshTokenRepository`). The project now uses SQLite exclusively. Remove `IMAUTH_DATABASE_URL` from your environment; data is stored in `data_dir/imauth.db`.
+
+### Changed
+- `sqlx` workspace dependency no longer enables the `postgres` feature.
+- `docker-compose.yml` no longer includes a `postgres` service.
+- CI workflow no longer spins up a PostgreSQL service container.
+
 ## [0.4.1] - 2026-06-05
 
 ### Added

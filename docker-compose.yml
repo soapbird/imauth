@@ -1,19 +1,4 @@
 services:
-  postgres:
-    container_name: services-imauth-postgres
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: imauth
-      POSTGRES_PASSWORD: imauth
-      POSTGRES_DB: imauth
-    volumes:
-      - ../imauth-data/postgres:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U imauth -d imauth"]
-      interval: 3s
-      timeout: 5s
-      retries: 10
-
   chrome-0:
     container_name: services-imauth-chrome-0
     image: ${BROWSER_KASM_IMAGE:-kasmweb/chromium:1.18.0}
@@ -491,12 +476,9 @@ services:
       - IMAUTH_ENCRYPTION_KEY=${IMAUTH_ENCRYPTION_KEY}
       - IMAUTH_API_KEY=${IMAUTH_API_KEY}
       - IMAUTH_BROWSER_VIEWER_URLS=http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_BROWSER_VIEWER_PORT_0:-6101}/index.html,http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_BROWSER_VIEWER_PORT_1:-6102}/index.html,http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_BROWSER_VIEWER_PORT_2:-6103}/index.html
-      - IMAUTH_DATABASE_URL=postgres://imauth:imauth@postgres/imauth
     volumes:
       - ../imauth-data/imauth:/data/.imauth
     depends_on:
-      postgres:
-        condition: service_healthy
       chrome-0:
         condition: service_healthy
       chrome-1:

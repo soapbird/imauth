@@ -45,38 +45,14 @@ impl AppContainer {
         let encryption: Arc<dyn EncryptionService> =
             Arc::new(AesGcmEncryptionService::from_config(&config)?);
 
-        let database_url = config.database_url();
-        let (sessions, cookies, credentials): (
-            Arc<dyn SessionRepository>,
-            Arc<dyn CookieRepository>,
-            Arc<dyn CredentialRepository>,
-        );
-
-        if database_url.starts_with("postgres://") {
-            let pool = crate::adapters::postgres::init_pool(&database_url).await?;
-            crate::adapters::postgres::run_migrations(&pool).await?;
-            sessions = Arc::new(crate::adapters::postgres::PostgresSessionRepository::new(
-                pool.clone(),
-            ));
-            cookies = Arc::new(crate::adapters::postgres::PostgresCookieRepository::new(
-                pool.clone(),
-            ));
-            credentials = Arc::new(
-                crate::adapters::postgres::PostgresCredentialRepository::new(
-                    pool.clone(),
-                    encryption.clone(),
-                ),
-            );
-        } else {
-            let pool = sqlite::init_pool(&config).await?;
-            sqlite::run_migrations(&pool).await?;
-            sessions = Arc::new(SqliteSessionRepository::new(pool.clone()));
-            cookies = Arc::new(SqliteCookieRepository::new(pool.clone()));
-            credentials = Arc::new(SqliteCredentialRepository::new(
-                pool.clone(),
-                encryption.clone(),
-            ));
-        }
+        let pool = sqlite::init_pool(&config).await?;
+        sqlite::run_migrations(&pool).await?;
+        let sessions: Arc<dyn SessionRepository> = Arc::new(SqliteSessionRepository::new(pool.clone()));
+        let cookies: Arc<dyn CookieRepository> = Arc::new(SqliteCookieRepository::new(pool.clone()));
+        let credentials: Arc<dyn CredentialRepository> = Arc::new(SqliteCredentialRepository::new(
+            pool.clone(),
+            encryption.clone(),
+        ));
 
         let cdp_urls = config.cdp_urls();
         let viewer_urls = config.browser_viewer_urls();

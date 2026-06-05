@@ -35,7 +35,6 @@ docker compose ps
 | Port | Service | Purpose |
 |------|---------|---------|
 | 9222 | `chrome-0/1/2` | Chrome DevTools Protocol (CDP) |
-| 5432 | `imauth-postgres` | PostgreSQL database |
 
 ## Environment Variables
 
