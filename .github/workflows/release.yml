@@ -139,6 +139,15 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           path: artifacts
+          pattern: imauth-*
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          name: python-sdk
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          name: ts-sdk
       - name: create release
         uses: softprops/action-gh-release@v3
         with:
