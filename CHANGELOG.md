@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.4.0.0] - 2026-05-20
+## [0.4.0] - 2026-06-05
 
 ### Added
 - User-driven login model: the server opens a browser via noVNC and returns a `viewer_url` so operators can log in themselves. Replaces the previous automated credential-stuffing approach with a more reliable human-in-the-loop flow.

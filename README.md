@@ -75,8 +75,8 @@ Release images are published to GitHub Container Registry (GHCR) on every `v*` t
 
 ```bash
 # Pull a specific release (or :latest)
-docker pull ghcr.io/soapbird/imauth:v0.3.0
-docker pull ghcr.io/soapbird/imauth-chrome:v0.3.0
+docker pull ghcr.io/soapbird/imauth:v0.4.0
+docker pull ghcr.io/soapbird/imauth-chrome:v0.4.0
 ```
 
 > GHCR images are private by default — authenticate first with
@@ -102,7 +102,7 @@ Release, so install it directly without cloning or running `protoc`:
 
 ```bash
 # Replace the tag/version with the one from the Releases page
-pip install https://github.com/soapbird/imauth/releases/download/v0.3.0/imauth-0.3.0-py3-none-any.whl
+pip install https://github.com/soapbird/imauth/releases/download/v0.4.0/imauth-0.4.0-py3-none-any.whl
 ```
 
 ```python
