@@ -1,6 +1,6 @@
 [project]
 name = "imauth"
-version = "0.4.0"
+version = "0.4.1"
 description = "Python SDK for imauth — social auth manager"
 requires-python = ">=3.10"
 dependencies = [
@@ -8,6 +8,9 @@ dependencies = [
     "grpcio-tools>=1.60",
     "pydantic>=2.0",
 ]
+
+[project.scripts]
+imauth = "imauth.__main__:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2026-06-05
+
+### Added
+- Python SDK CLI: the `imauth` package now ships an `imauth` console script (`imauth login|status|cancel|cookies|validate|connections|export-netscape|creds-*`), runnable directly via `uvx --from <wheel-url> imauth ...`. Connection defaults read from `IMAUTH_SERVER_ADDRESS` / `IMAUTH_API_KEY`.
+
+### Changed
+- Release pipeline publishes Docker images to GHCR (`imauth`, `imauth-chrome`) and attaches the Python wheel to the GitHub Release.
+
 ## [0.4.0] - 2026-06-05
 
 ### Added

@@ -75,8 +75,8 @@ Release images are published to GitHub Container Registry (GHCR) on every `v*` t
 
 ```bash
 # Pull a specific release (or :latest)
-docker pull ghcr.io/soapbird/imauth:v0.4.0
-docker pull ghcr.io/soapbird/imauth-chrome:v0.4.0
+docker pull ghcr.io/soapbird/imauth:v0.4.1
+docker pull ghcr.io/soapbird/imauth-chrome:v0.4.1
 ```
 
 > GHCR images are private by default — authenticate first with
@@ -102,20 +102,43 @@ Release, so install it directly without cloning or running `protoc`:
 
 ```bash
 # Replace the tag/version with the one from the Releases page
-pip install https://github.com/soapbird/imauth/releases/download/v0.4.0/imauth-0.4.0-py3-none-any.whl
+pip install https://github.com/soapbird/imauth/releases/download/v0.4.1/imauth-0.4.1-py3-none-any.whl
 ```
 
 ```python
-from imauth import ImAuthClient
+from imauth import ImauthClient
+from imauth.models import Platform
 
-client = ImAuthClient("localhost:6100", api_key="<IMAUTH_API_KEY>")
-for event in client.login(platform="instagram", username="...", password="..."):
-    print(event)
+client = ImauthClient("localhost:6100", api_key="<IMAUTH_API_KEY>")
+for event in client.login(Platform.INSTAGRAM):
+    print(event.status, event.viewer_url)  # open viewer_url to finish login
 ```
 
 > Installing from source (`pip install "git+https://github.com/soapbird/imauth.git#subdirectory=sdk/python"`)
 > is **not** supported: the generated `imauth/v1/*_pb2.py` stubs are gitignored
 > and only produced during the release build. Use the published wheel instead.
+
+#### CLI via `uvx`
+
+The wheel ships an `imauth` console script, so you can drive the server from a
+shell without installing anything permanently:
+
+```bash
+# Point uvx at the release wheel; everything after `imauth` is the CLI
+WHL=https://github.com/soapbird/imauth/releases/download/v0.4.1/imauth-0.4.1-py3-none-any.whl
+
+export IMAUTH_SERVER_ADDRESS=localhost:6100
+export IMAUTH_API_KEY=<key>
+
+uvx --from "$WHL" imauth login --platform naver        # stream login events (JSON)
+uvx --from "$WHL" imauth validate --platform naver     # exit 0 if session present
+uvx --from "$WHL" imauth connections                   # status of all platforms
+uvx --from "$WHL" imauth --help                         # full command list
+```
+
+`--server` / `--api-key` flags override the `IMAUTH_SERVER_ADDRESS` /
+`IMAUTH_API_KEY` env vars. For `creds-save`, prefer `IMAUTH_CRED_PASSWORD` over
+`--password` so the secret never lands in your shell history.
 
 ### TypeScript
 
