@@ -1,5 +1,5 @@
 PROJECT   := imauth
-REGISTRY  ?= ghcr.io/soapbird
+REGISTRY  ?= docker.io/soapbird
 IMAGE     := $(REGISTRY)/$(PROJECT)
 CHROME_IMAGE ?= $(REGISTRY)/$(PROJECT)-chrome
 VERSION   := $(shell grep '^version' crates/imauth-server/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
