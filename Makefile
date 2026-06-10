@@ -1,5 +1,5 @@
 PROJECT   := imauth
-REGISTRY  ?= docker.io/soapbird
+REGISTRY  ?= docker.io/imyounjs
 IMAGE     := $(REGISTRY)/$(PROJECT)
 CHROME_IMAGE       ?= imyounjs/chrome
 CHROME_PROXY_IMAGE ?= imyounjs/chrome-proxy

@@ -5,6 +5,9 @@ x-chrome: &chrome
   user: "0:0"
   environment:
     VNC_RESOLUTION: ${BROWSER_KASM_RESOLUTION:-1366x768}
+    # KasmVNC needs a non-empty password to start its daemon; auth itself is
+    # disabled in the chrome image (-SecurityTypes None), so login stays immediate.
+    VNC_PW: ${IMAUTH_VNC_PASSWORD:-imauth}
   healthcheck: &chrome-healthcheck
     test: ["CMD", "curl", "-f", "http://localhost:9223/json/version"]
     interval: 3s
@@ -18,61 +21,54 @@ x-chrome-proxy: &chrome-proxy
 services:
   chrome-0:
     <<: *chrome
-    container_name: services-imauth-chrome-0
     volumes:
-      - ../imauth-data/chrome-0:/home/kasm-user/.config/chromium:rw
+      - ${IMAUTH_DATA_ROOT:-../imauth-data}/chrome-0:/home/kasm-user/.config/chromium:rw
     healthcheck: *chrome-healthcheck
 
   chrome-0-proxy:
     <<: *chrome-proxy
-    container_name: services-imauth-chrome-0-proxy
     depends_on:
       chrome-0:
         condition: service_healthy
     environment:
       UPSTREAM_HOST: chrome-0
     ports:
-      - "${IMAUTH_BROWSER_VIEWER_PORT_0:-6101}:8080"
+      - "${IMAUTH_NOVNC_PORT_0:-6101}:8080"
 
   chrome-1:
     <<: *chrome
-    container_name: services-imauth-chrome-1
     volumes:
-      - ../imauth-data/chrome-1:/home/kasm-user/.config/chromium:rw
+      - ${IMAUTH_DATA_ROOT:-../imauth-data}/chrome-1:/home/kasm-user/.config/chromium:rw
     healthcheck: *chrome-healthcheck
 
   chrome-1-proxy:
     <<: *chrome-proxy
-    container_name: services-imauth-chrome-1-proxy
     depends_on:
       chrome-1:
         condition: service_healthy
     environment:
       UPSTREAM_HOST: chrome-1
     ports:
-      - "${IMAUTH_BROWSER_VIEWER_PORT_1:-6102}:8080"
+      - "${IMAUTH_NOVNC_PORT_1:-6102}:8080"
 
   chrome-2:
     <<: *chrome
-    container_name: services-imauth-chrome-2
     volumes:
-      - ../imauth-data/chrome-2:/home/kasm-user/.config/chromium:rw
+      - ${IMAUTH_DATA_ROOT:-../imauth-data}/chrome-2:/home/kasm-user/.config/chromium:rw
     healthcheck: *chrome-healthcheck
 
   chrome-2-proxy:
     <<: *chrome-proxy
-    container_name: services-imauth-chrome-2-proxy
     depends_on:
       chrome-2:
         condition: service_healthy
     environment:
       UPSTREAM_HOST: chrome-2
     ports:
-      - "${IMAUTH_BROWSER_VIEWER_PORT_2:-6103}:8080"
+      - "${IMAUTH_NOVNC_PORT_2:-6103}:8080"
 
   server:
-    container_name: services-imauth-server
-    image: docker.io/soapbird/imauth:latest
+    image: imyounjs/imauth:latest
     restart: unless-stopped
     user: "0:0"
     environment:
@@ -81,9 +77,9 @@ services:
       - IMAUTH_DATA_DIR=/data/.imauth/data
       - IMAUTH_ENCRYPTION_KEY=${IMAUTH_ENCRYPTION_KEY}
       - IMAUTH_API_KEY=${IMAUTH_API_KEY}
-      - IMAUTH_BROWSER_VIEWER_URLS=http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_BROWSER_VIEWER_PORT_0:-6101}/index.html,http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_BROWSER_VIEWER_PORT_1:-6102}/index.html,http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_BROWSER_VIEWER_PORT_2:-6103}/index.html
+      - IMAUTH_BROWSER_VIEWER_URLS=http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_NOVNC_PORT_0:-6101}/index.html,http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_NOVNC_PORT_1:-6102}/index.html,http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_NOVNC_PORT_2:-6103}/index.html
     volumes:
-      - ../imauth-data/imauth:/data/.imauth
+      - ${IMAUTH_DATA_ROOT:-../imauth-data}/imauth:/data/.imauth
     depends_on:
       chrome-0:
         condition: service_healthy
@@ -94,3 +90,8 @@ services:
     ports:
       - "${IMAUTH_GRPC_HOST_PORT:-6100}:50051"
     command: ["serve"]
+
+networks:
+  default:
+    name: net-imauth
+    driver: bridge

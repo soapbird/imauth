@@ -46,9 +46,11 @@ All environment variables use the `IMAUTH_` prefix.
 | `IMAUTH_API_KEY`               | —           | gRPC API key for client auth                     |
 | `IMAUTH_SERVER_HOSTNAME`       | `localhost` | Hostname used in Kasm browser viewer URLs        |
 | `IMAUTH_GRPC_HOST_PORT`        | `6100`      | Host port mapped to gRPC (50051)                 |
-| `IMAUTH_BROWSER_VIEWER_PORT_0` | `6101`      | Host port for browser viewer slot 0              |
-| `IMAUTH_BROWSER_VIEWER_PORT_1` | `6102`      | Host port for browser viewer slot 1              |
-| `IMAUTH_BROWSER_VIEWER_PORT_2` | `6103`      | Host port for browser viewer slot 2              |
+| `IMAUTH_NOVNC_PORT_0`          | `6101`      | Host port for noVNC viewer slot 0                |
+| `IMAUTH_NOVNC_PORT_1`          | `6102`      | Host port for noVNC viewer slot 1                |
+| `IMAUTH_NOVNC_PORT_2`          | `6103`      | Host port for noVNC viewer slot 2                |
+| `IMAUTH_VNC_PASSWORD`          | —           | noVNC password (auth disabled by default — login is immediate) |
+| `IMAUTH_DATA_ROOT`             | `../imauth-data` | Host directory for persisted chrome/server data |
 | `IMAUTH_METRICS_PORT`          | `9090`      | Host port for Prometheus metrics                 |
 
 ## Running Multiple Instances on One Host
@@ -65,29 +67,25 @@ Update `.env` accordingly before starting each stack.
 
 ## Container Images
 
-Release images are published to GitHub Container Registry (GHCR) on every `v*` tag:
+Release images are published to Docker Hub on every `v*` tag:
 
-| Image                            | Contents                               |
-| -------------------------------- | -------------------------------------- |
-| `ghcr.io/soapbird/imauth`        | gRPC server + CLI (slim runtime)       |
-| `ghcr.io/soapbird/imauth-chrome` | Chromium + Kasm browser viewer sidecar |
+| Image                       | Contents                               |
+| --------------------------- | -------------------------------------- |
+| `imyounjs/imauth`           | gRPC server + CLI (slim runtime)       |
+| `imyounjs/imauth-chrome`    | Chromium + Kasm browser viewer sidecar |
 
 ```bash
 # Pull a specific release (or :latest)
-docker pull ghcr.io/soapbird/imauth:v0.4.1
-docker pull ghcr.io/soapbird/imauth-chrome:v0.4.1
+docker pull imyounjs/imauth:v0.4.1
+docker pull imyounjs/imauth-chrome:v0.4.1
 ```
-
-> GHCR images are private by default — authenticate first with
-> `echo $GITHUB_TOKEN | docker login ghcr.io -u <username> --password-stdin`
-> (token needs `read:packages`).
 
 Local image builds use the Makefile:
 
 ```bash
-make docker         # build ghcr.io/soapbird/imauth
-make docker-chrome  # build ghcr.io/soapbird/imauth-chrome
-make deploy-all     # buildx multi-arch build + push both images
+make docker         # build imyounjs/imauth
+make docker-chrome  # build imyounjs/chrome
+make deploy-all     # buildx multi-arch build + push all images
 ```
 
 ## SDKs
@@ -101,7 +99,7 @@ Release, so install it directly without cloning or running `protoc`:
 
 ```bash
 # Replace the tag/version with the one from the Releases page
-pip install https://github.com/soapbird/imauth/releases/download/v0.4.1/imauth-0.4.1-py3-none-any.whl
+pip install https://github.com/imyounjs/imauth/releases/download/v0.4.1/imauth-0.4.1-py3-none-any.whl
 ```
 
 ```python
@@ -113,7 +111,7 @@ for event in client.login(Platform.INSTAGRAM):
     print(event.status, event.viewer_url)  # open viewer_url to finish login
 ```
 
-> Installing from source (`pip install "git+https://github.com/soapbird/imauth.git#subdirectory=sdk/python"`)
+> Installing from source (`pip install "git+https://github.com/imyounjs/imauth.git#subdirectory=sdk/python"`)
 > is **not** supported: the generated `imauth/v1/*_pb2.py` stubs are gitignored
 > and only produced during the release build. Use the published wheel instead.
 
@@ -124,7 +122,7 @@ shell without installing anything permanently:
 
 ```bash
 # Point uvx at the release wheel; everything after `imauth` is the CLI
-WHL=https://github.com/soapbird/imauth/releases/download/v0.4.1/imauth-0.4.1-py3-none-any.whl
+WHL=https://github.com/imyounjs/imauth/releases/download/v0.4.1/imauth-0.4.1-py3-none-any.whl
 
 export IMAUTH_SERVER_ADDRESS=localhost:6100
 export IMAUTH_API_KEY=<key>

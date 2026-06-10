@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Container images now publish to Docker Hub under the `imyounjs` namespace (`imyounjs/imauth`, `imyounjs/imauth-chrome`); GHCR publishing removed from the release pipeline.
+- `docker-compose.yml`/`docker-compose.dev.yml`: parameterized data root (`IMAUTH_DATA_ROOT`) and renamed viewer port vars to `IMAUTH_NOVNC_PORT_*`. noVNC auth stays disabled, so `IMAUTH_VNC_PASSWORD` can be left empty for immediate login.
+
 ## [0.5.0] - 2026-06-05
 
 ### Removed
