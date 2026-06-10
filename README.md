@@ -22,10 +22,8 @@ docker compose ps
 
 | Host Port | Container / Service | Purpose                      | Required             |
 | --------- | ------------------- | ---------------------------- | -------------------- |
-| **6100**  | `chrome-0:50051`    | gRPC API                     | ✅ Always            |
-| **6101**  | `chrome-0:6080`     | Kasm browser viewer (slot 0) | ✅ User-driven login |
-| **6102**  | `chrome-1:6080`     | Kasm browser viewer (slot 1) | ✅ User-driven login |
-| **6103**  | `chrome-2:6080`     | Kasm browser viewer (slot 2) | ✅ User-driven login |
+| **6100**  | `server:50051`      | gRPC API                     | ✅ Always            |
+| **6101**  | `chrome-0:6080`     | Kasm browser viewer          | ✅ User-driven login |
 | 9090      | `server:9090`       | Prometheus metrics           | Optional             |
 
 > **Note:** All external ports live in the `610X` range to avoid collisions with other services.
@@ -34,7 +32,7 @@ docker compose ps
 
 | Port | Service        | Purpose                        |
 | ---- | -------------- | ------------------------------ |
-| 9222 | `chrome-0/1/2` | Chrome DevTools Protocol (CDP) |
+| 9222 | `chrome-0`     | Chrome DevTools Protocol (CDP) |
 
 ## Environment Variables
 
@@ -46,9 +44,7 @@ All environment variables use the `IMAUTH_` prefix.
 | `IMAUTH_API_KEY`               | —           | gRPC API key for client auth                     |
 | `IMAUTH_SERVER_HOSTNAME`       | `localhost` | Hostname used in Kasm browser viewer URLs        |
 | `IMAUTH_GRPC_HOST_PORT`        | `6100`      | Host port mapped to gRPC (50051)                 |
-| `IMAUTH_NOVNC_PORT_0`          | `6101`      | Host port for noVNC viewer slot 0                |
-| `IMAUTH_NOVNC_PORT_1`          | `6102`      | Host port for noVNC viewer slot 1                |
-| `IMAUTH_NOVNC_PORT_2`          | `6103`      | Host port for noVNC viewer slot 2                |
+| `IMAUTH_NOVNC_PORT_0`          | `6101`      | Host port for noVNC viewer                        |
 | `IMAUTH_VNC_PASSWORD`          | —           | noVNC password (auth disabled by default — login is immediate) |
 | `IMAUTH_DATA_ROOT`             | `../imauth-data` | Host directory for persisted chrome/server data |
 | `IMAUTH_METRICS_PORT`          | `9090`      | Host port for Prometheus metrics                 |
@@ -57,11 +53,11 @@ All environment variables use the `IMAUTH_` prefix.
 
 Assign ports in non-overlapping groups:
 
-| Instance   | gRPC | viewer ports |
-| ---------- | ---- | ------------ |
-| Instance A | 6100 | 6101–6103    |
-| Instance B | 6110 | 6111–6113    |
-| Instance C | 6120 | 6121–6123    |
+| Instance   | gRPC | viewer port |
+| ---------- | ---- | ----------- |
+| Instance A | 6100 | 6101        |
+| Instance B | 6110 | 6111        |
+| Instance C | 6120 | 6121        |
 
 Update `.env` accordingly before starting each stack.
 
