@@ -83,10 +83,6 @@ fn default_login_timeout_secs() -> u64 {
     300
 }
 
-fn default_metrics_port() -> u16 {
-    9090
-}
-
 fn default_data_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
@@ -186,12 +182,6 @@ impl Config {
         if let Ok(url) = std::env::var("IMAUTH_DATABASE_URL") {
             self.storage.database_url = Some(url);
         }
-        if let Ok(port) = std::env::var("IMAUTH_METRICS_PORT") {
-            if let Ok(p) = port.parse() {
-                self.server.metrics_port = Some(p);
-            }
-        }
-
         if self.security.encryption_key.as_deref() == Some("") {
             self.security.encryption_key = None;
         }
@@ -281,10 +271,8 @@ impl Config {
         }
     }
 
-    pub fn metrics_port(&self) -> u16 {
-        self.server
-            .metrics_port
-            .unwrap_or_else(default_metrics_port)
+    pub fn metrics_port(&self) -> Option<u16> {
+        self.server.metrics_port
     }
 }
 
@@ -315,7 +303,6 @@ mod tests {
             "IMAUTH_DATA_DIR",
             "IMAUTH_BROWSER_VIEWER_URLS",
             "IMAUTH_DATABASE_URL",
-            "IMAUTH_METRICS_PORT",
         ] {
             std::env::remove_var(k);
         }

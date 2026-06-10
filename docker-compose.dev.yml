@@ -106,7 +106,7 @@ services:
         --user-data-dir=/home/kasm-user/.config/chromium
         --lang=ko-KR
     volumes:
-      - ${IMAUTH_DATA_ROOT:-../imauth-data}/chrome-0:/home/kasm-user/.config/chromium:rw
+      - ${IMAUTH_DATA:-../imauth-data}/chrome-0:/home/kasm-user/.config/chromium:rw
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9223/json/version"]
       interval: 3s
@@ -170,7 +170,7 @@ services:
       - IMAUTH_API_KEY=${IMAUTH_API_KEY}
       - IMAUTH_BROWSER_VIEWER_URLS=http://${IMAUTH_HOSTNAME:-localhost}:${IMAUTH_NOVNC_PORT_0:-6101}/index.html
     volumes:
-      - ${IMAUTH_DATA_ROOT:-../imauth-data}/imauth:/data/.imauth
+      - ${IMAUTH_DATA:-../imauth-data}/imauth:/data/.imauth
     depends_on:
       chrome-0:
         condition: service_healthy

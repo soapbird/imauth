@@ -69,43 +69,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .set_serving::<CredentialServiceServer<CredentialGrpcService>>()
                 .await;
 
-            // Metrics
-            let metrics_port = cfg.metrics_port();
-            let recorder = metrics_exporter_prometheus::PrometheusBuilder::new()
-                .build_recorder();
-            let metrics_handle = recorder.handle();
-            metrics::set_global_recorder(recorder)
-                .map_err(|e| tracing::warn!("Failed to set global metrics recorder: {e}"))
-                .ok();
-            tokio::spawn(async move {
-                let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{}", metrics_port)).await {
-                    Ok(l) => l,
-                    Err(e) => {
-                        tracing::error!("Failed to bind metrics server: {e}");
-                        return;
-                    }
-                };
-                tracing::info!("Metrics server listening on 0.0.0.0:{}", metrics_port);
-                loop {
-                    let (mut socket, _) = match listener.accept().await {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::warn!("Metrics accept error: {e}");
-                            continue;
-                        }
-                    };
-                    let body = metrics_handle.render();
-                    let response = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
-                        body.len(),
-                        body
-                    );
-                    if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut socket, response.as_bytes()).await {
-                        tracing::warn!("Failed to write metrics response: {e}");
-                    }
-                }
-            });
-
             // Wait for SIGTERM/SIGINT and finish in-flight streams instead of
             // dropping the runtime under them. Prevents leaked browser-pool
             // permits when the orchestrator restarts the container.

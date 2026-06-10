@@ -45,8 +45,8 @@ All environment variables use the `IMAUTH_` prefix.
 | `IMAUTH_HOSTNAME`              | `localhost` | Hostname used in Kasm browser viewer URLs        |
 | `IMAUTH_HOSTPORT`              | `6100`      | Host port mapped to gRPC (50051)                 |
 | `IMAUTH_NOVNC_PORT_0`          | `6101`      | Host port for noVNC viewer                        |
-| `IMAUTH_DATA_ROOT`             | `../imauth-data` | Host directory for persisted chrome/server data |
-| `IMAUTH_METRICS_PORT`          | `9090`      | Host port for Prometheus metrics                 |
+| `IMAUTH_DATA`                  | `../imauth-data` | Host directory for persisted chrome/server data |
+
 
 ## Running Multiple Instances on One Host
 

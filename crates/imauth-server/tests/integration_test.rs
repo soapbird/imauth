@@ -73,8 +73,6 @@ async fn test_container() -> AppContainer {
     config.storage.data_dir = temp_dir;
     config.security.encryption_key =
         Some("pZN6lLjwDGIpj/BUWeTFnsB7GUp9bSuwnUcS3gYkQ2A=".to_string());
-    config.server.metrics_port = Some(0);
-
     let pool = init_pool(&config).await.unwrap();
     run_migrations(&pool).await.unwrap();
 
