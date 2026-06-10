@@ -42,8 +42,8 @@ All environment variables use the `IMAUTH_` prefix.
 | ------------------------------ | ----------- | ------------------------------------------------ |
 | `IMAUTH_ENCRYPTION_KEY`        | —           | **Required.** 32-byte base64-encoded AES-256 key |
 | `IMAUTH_API_KEY`               | —           | gRPC API key for client auth                     |
-| `IMAUTH_SERVER_HOSTNAME`       | `localhost` | Hostname used in Kasm browser viewer URLs        |
-| `IMAUTH_GRPC_HOST_PORT`        | `6100`      | Host port mapped to gRPC (50051)                 |
+| `IMAUTH_HOSTNAME`              | `localhost` | Hostname used in Kasm browser viewer URLs        |
+| `IMAUTH_HOSTPORT`              | `6100`      | Host port mapped to gRPC (50051)                 |
 | `IMAUTH_NOVNC_PORT_0`          | `6101`      | Host port for noVNC viewer                        |
 | `IMAUTH_VNC_PASSWORD`          | —           | noVNC password (auth disabled by default — login is immediate) |
 | `IMAUTH_DATA_ROOT`             | `../imauth-data` | Host directory for persisted chrome/server data |

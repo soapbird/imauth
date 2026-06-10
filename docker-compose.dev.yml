@@ -168,14 +168,14 @@ services:
       - IMAUTH_DATA_DIR=/data/.imauth/data
       - IMAUTH_ENCRYPTION_KEY=${IMAUTH_ENCRYPTION_KEY}
       - IMAUTH_API_KEY=${IMAUTH_API_KEY}
-      - IMAUTH_BROWSER_VIEWER_URLS=http://${IMAUTH_SERVER_HOSTNAME:-localhost}:${IMAUTH_NOVNC_PORT_0:-6101}/index.html
+      - IMAUTH_BROWSER_VIEWER_URLS=http://${IMAUTH_HOSTNAME:-localhost}:${IMAUTH_NOVNC_PORT_0:-6101}/index.html
     volumes:
       - ${IMAUTH_DATA_ROOT:-../imauth-data}/imauth:/data/.imauth
     depends_on:
       chrome-0:
         condition: service_healthy
     ports:
-      - "${IMAUTH_GRPC_HOST_PORT:-6100}:50051"
+      - "${IMAUTH_HOSTPORT:-6100}:50051"
     command: ["serve"]
 
 networks:
