@@ -124,7 +124,7 @@ shell without installing anything permanently:
 # Point uvx at the release wheel; everything after `imauth` is the CLI
 WHL=https://github.com/imyounjs/imauth/releases/download/v0.4.1/imauth-0.4.1-py3-none-any.whl
 
-export IMAUTH_SERVER_ADDRESS=localhost:6100
+export IMAUTH_URL=localhost:6100
 export IMAUTH_API_KEY=<key>
 
 uvx --from "$WHL" imauth login --platform naver        # stream login events (JSON)
@@ -133,7 +133,7 @@ uvx --from "$WHL" imauth connections                   # status of all platforms
 uvx --from "$WHL" imauth --help                         # full command list
 ```
 
-`--server` / `--api-key` flags override the `IMAUTH_SERVER_ADDRESS` /
+`--server` / `--api-key` flags override the `IMAUTH_URL` /
 `IMAUTH_API_KEY` env vars. For `creds-save`, prefer `IMAUTH_CRED_PASSWORD` over
 `--password` so the secret never lands in your shell history.
 

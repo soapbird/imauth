@@ -7,7 +7,7 @@ from a shell — and, since the package ships a console script, runnable with
     uvx --from <wheel-url> imauth --server localhost:6100 login --platform naver
 
 Connection defaults come from the environment so they don't have to be repeated:
-``IMAUTH_SERVER_ADDRESS`` (default ``localhost:6100``) and ``IMAUTH_API_KEY``.
+``IMAUTH_URL`` (default ``localhost:6100``) and ``IMAUTH_API_KEY``.
 """
 
 from __future__ import annotations
@@ -104,8 +104,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="imauth", description="imauth gRPC client")
     parser.add_argument(
         "--server",
-        default=os.environ.get("IMAUTH_SERVER_ADDRESS", "localhost:6100"),
-        help="gRPC server address (env IMAUTH_SERVER_ADDRESS, default localhost:6100)",
+        default=os.environ.get("IMAUTH_URL", "localhost:6100"),
+        help="gRPC server address (env IMAUTH_URL, default localhost:6100)",
     )
     parser.add_argument(
         "--api-key",
