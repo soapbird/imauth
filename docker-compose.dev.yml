@@ -1,6 +1,8 @@
+name: service-imauth
+
 services:
   chrome-0:
-    container_name: services-imauth-chrome-0
+    container_name: service-imauth-chrome-0
     image: ${BROWSER_KASM_IMAGE:-kasmweb/chromium:1.18.0}
     shm_size: "2gb"
     restart: unless-stopped
@@ -112,7 +114,7 @@ services:
       retries: 10
 
   chrome-0-proxy:
-    container_name: services-imauth-chrome-0-proxy
+    container_name: service-imauth-chrome-0-proxy
     image: nginx:alpine
     restart: unless-stopped
     depends_on:
@@ -155,7 +157,7 @@ services:
       - "${IMAUTH_NOVNC_PORT_0:-6101}:8080"
 
   chrome-1:
-    container_name: services-imauth-chrome-1
+    container_name: service-imauth-chrome-1
     image: ${BROWSER_KASM_IMAGE:-kasmweb/chromium:1.18.0}
     shm_size: "2gb"
     restart: unless-stopped
@@ -267,7 +269,7 @@ services:
       retries: 10
 
   chrome-1-proxy:
-    container_name: services-imauth-chrome-1-proxy
+    container_name: service-imauth-chrome-1-proxy
     image: nginx:alpine
     restart: unless-stopped
     depends_on:
@@ -310,7 +312,7 @@ services:
       - "${IMAUTH_NOVNC_PORT_1:-6102}:8080"
 
   chrome-2:
-    container_name: services-imauth-chrome-2
+    container_name: service-imauth-chrome-2
     image: ${BROWSER_KASM_IMAGE:-kasmweb/chromium:1.18.0}
     shm_size: "2gb"
     restart: unless-stopped
@@ -422,7 +424,7 @@ services:
       retries: 10
 
   chrome-2-proxy:
-    container_name: services-imauth-chrome-2-proxy
+    container_name: service-imauth-chrome-2-proxy
     image: nginx:alpine
     restart: unless-stopped
     depends_on:
@@ -465,7 +467,7 @@ services:
       - "${IMAUTH_NOVNC_PORT_2:-6103}:8080"
 
   server:
-    container_name: services-imauth-server
+    container_name: service-imauth-server
     build:
       context: .
       dockerfile: Dockerfile
