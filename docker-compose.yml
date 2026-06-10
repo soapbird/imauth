@@ -5,9 +5,9 @@ x-chrome: &chrome
   user: "0:0"
   environment:
     VNC_RESOLUTION: ${BROWSER_KASM_RESOLUTION:-1366x768}
-    # KasmVNC needs a non-empty password to start its daemon; auth itself is
-    # disabled in the chrome image (-SecurityTypes None), so login stays immediate.
-    VNC_PW: ${IMAUTH_VNC_PASSWORD:-imauth}
+    # KasmVNC needs a non-empty password to start its daemon. Auth is disabled
+    # in the chrome image (-SecurityTypes None), so login is always immediate.
+    VNC_PW: imauth
   healthcheck: &chrome-healthcheck
     test: ["CMD", "curl", "-f", "http://localhost:9223/json/version"]
     interval: 3s

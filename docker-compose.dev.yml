@@ -81,7 +81,7 @@ services:
     environment:
       VNC_RESOLUTION: ${BROWSER_KASM_RESOLUTION:-1366x768}
       MAX_FRAME_RATE: "24"
-      VNC_PW: ${IMAUTH_VNC_PASSWORD:-imauth}
+      VNC_PW: imauth
       VNCOPTIONS: >-
         -PreferBandwidth
         -DynamicQualityMin=4
