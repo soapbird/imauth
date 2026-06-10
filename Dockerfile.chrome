@@ -1,19 +1,29 @@
-FROM selenium/standalone-chromium:131.0
+FROM kasmweb/chromium:1.18.0
 
 USER root
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    xvfb \
-    x11vnc \
-    novnc \
-    websockify \
-    curl \
-    socat \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/chrome-entrypoint.sh /chrome-entrypoint.sh
 RUN chmod +x /chrome-entrypoint.sh
 
-EXPOSE 9222 6080
+ENV VNC_RESOLUTION=1366x768 \
+    MAX_FRAME_RATE=24 \
+    VNC_PW=imauth-local-only \
+    VNCOPTIONS="-PreferBandwidth -DynamicQualityMin=4 -DynamicQualityMax=6 -SecurityTypes None -DisableBasicAuth 1 -sslOnly 0 -AcceptSetDesktopSize 1 -MaxVideoResolution 1280x720" \
+    KASM_SVC_AUDIO=0 \
+    KASM_SVC_AUDIO_INPUT=0 \
+    KASM_SVC_UPLOADS=0 \
+    KASM_SVC_GAMEPAD=0 \
+    KASM_SVC_WEBCAM=0 \
+    KASM_SVC_PRINTER=0 \
+    KASM_SVC_SMARTCARD=0 \
+    LAUNCH_URL=about:blank \
+    APP_ARGS="--start-maximized --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222 --user-data-dir=/home/kasm-user/.config/chromium --lang=ko-KR"
 
-ENTRYPOINT ["/bin/sh", "/chrome-entrypoint.sh"]
+EXPOSE 9223 6901
+
+USER 0:0
+
+HEALTHCHECK --interval=3s --timeout=5s --retries=10 \
+  CMD curl -f http://localhost:9223/json/version || exit 1
+
+ENTRYPOINT ["/bin/bash", "-lc", "/chrome-entrypoint.sh"]

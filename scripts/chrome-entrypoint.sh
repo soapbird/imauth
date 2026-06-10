@@ -1,91 +1,75 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
-# --- Configuration ---
-VNC_PASSWORD="${IMAUTH_VNC_PASSWORD:-imauth}"
-DISPLAY_NUM="${DISPLAY_NUM:-99}"
-DISPLAY=":${DISPLAY_NUM}"
+mkdir -p /home/kasm-user/.config/chromium
+rm -f /home/kasm-user/.config/chromium/SingletonLock /home/kasm-user/.config/chromium/SingletonSocket /home/kasm-user/.config/chromium/SingletonCookie
+chown -R kasm-user:kasm-user /home/kasm-user/.config /home/kasm-user/.cache /home/kasm-user/.local /home/kasm-user/Desktop /home/kasm-user/Downloads /home/kasm-user/Uploads 2>/dev/null || true
 
-# Chromium 131+ binds CDP to 127.0.0.1 regardless of
-# --remote-debugging-address. We run Chrome on 9223 (localhost only)
-# and use socat to expose 9222 on all interfaces so cross-container
-# connections work.
-CHROME_CDP_PORT=9223
-SOCAT_CDP_PORT=9222
+mkdir -p /home/kasm-user/.vnc
+cat > /home/kasm-user/.vnc/kasmvnc.yaml <<'YAML'
+encoding:
+  max_frame_rate: 24
+  full_frame_updates: none
+  rect_encoding_mode:
+    min_quality: 4
+    max_quality: 6
+    consider_lossless_quality: 10
+    rectangle_compress_threads: auto
+  compare_framebuffer: auto
+YAML
 
-# --- Start Xvfb (virtual framebuffer) ---
-Xvfb "$DISPLAY" -screen 0 1280x1024x24 &
-XVFB_PID=$!
+chown -R kasm-user:kasm-user /home/kasm-user/.config /home/kasm-user/.cache /home/kasm-user/.local /home/kasm-user/Desktop /home/kasm-user/Downloads /home/kasm-user/Uploads /home/kasm-user/.vnc 2>/dev/null || true
 
-# Wait for Xvfb to start
-for i in $(seq 1 10); do
-  if [ -e "/tmp/.X11-unix/X${DISPLAY_NUM}" ]; then
-    break
-  fi
-  sleep 0.5
-done
+printf '#!/usr/bin/env bash\nexit 0\n' >/usr/bin/desktop_ready
+chmod +x /usr/bin/desktop_ready
 
-# --- Start x11vnc ---
-x11vnc -display "$DISPLAY" -forever -noxdamage -repeat -passwd "$VNC_PASSWORD" -shared &
-X11VNC_PID=$!
+cat > /tmp/browser-cdp-relay.py <<'PY'
+import shutil
+import socket
+import socketserver
+import threading
 
-# --- Start noVNC (websockify) ---
-# Try both common noVNC static file paths
-NOVNC_WEB_DIR="/usr/share/novnc"
-if [ ! -d "$NOVNC_WEB_DIR" ]; then
-  NOVNC_WEB_DIR="/usr/share/noVNC"
-fi
-websockify --web="$NOVNC_WEB_DIR" 6080 localhost:5900 &
-WEBSOCKIFY_PID=$!
+class Relay(socketserver.BaseRequestHandler):
+    def handle(self):
+        try:
+            upstream = socket.create_connection(("127.0.0.1", 9222), timeout=10)
+        except OSError:
+            return
 
-# --- Start Chromium in headed mode on Xvfb ---
-/usr/bin/chromium \
-  --remote-debugging-port=${CHROME_CDP_PORT} \
-  --remote-debugging-address=0.0.0.0 \
-  --remote-allow-origins=* \
-  --no-sandbox \
-  --disable-setuid-sandbox \
-  --disable-dev-shm-usage \
-  --disable-gpu \
-  --window-size=390,844 \
-  --display="$DISPLAY" &
+        def pump(src, dst):
+            try:
+                shutil.copyfileobj(src.makefile("rb", buffering=0), dst.makefile("wb", buffering=0))
+            except OSError:
+                pass
+            finally:
+                for item in (src, dst):
+                    try:
+                        item.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
 
-CHROME_PID=$!
+        threads = [
+            threading.Thread(target=pump, args=(self.request, upstream), daemon=True),
+            threading.Thread(target=pump, args=(upstream, self.request), daemon=True),
+        ]
+        for thread in threads:
+            thread.start()
+        try:
+            for thread in threads:
+                thread.join()
+        finally:
+            for item in (self.request, upstream):
+                try:
+                    item.close()
+                except OSError:
+                    pass
 
-# Wait for Chromium CDP to be ready on its internal port
-for i in $(seq 1 30); do
-  if curl -sf http://127.0.0.1:${CHROME_CDP_PORT}/json/version >/dev/null 2>&1; then
-    break
-  fi
-  sleep 1
-done
+class Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
 
-# --- Start socat to forward external 9222 → internal 9223 ---
-socat TCP-LISTEN:${SOCAT_CDP_PORT},fork TCP:127.0.0.1:${CHROME_CDP_PORT} &
-SOCAT_PID=$!
+Server(("0.0.0.0", 9223), Relay).serve_forever()
+PY
 
-# Verify socat is working
-for i in $(seq 1 10); do
-  if curl -sf http://127.0.0.1:${SOCAT_CDP_PORT}/json/version >/dev/null 2>&1; then
-    break
-  fi
-  sleep 0.5
-done
-
-# Forward termination signals
-_cleanup() {
-  kill "$SOCAT_PID" 2>/dev/null || true
-  kill "$CHROME_PID" 2>/dev/null || true
-  kill "$WEBSOCKIFY_PID" 2>/dev/null || true
-  kill "$X11VNC_PID" 2>/dev/null || true
-  kill "$XVFB_PID" 2>/dev/null || true
-  wait
-}
-trap _cleanup TERM INT
-
-wait "$CHROME_PID"
-kill "$SOCAT_PID" 2>/dev/null || true
-kill "$WEBSOCKIFY_PID" 2>/dev/null || true
-kill "$X11VNC_PID" 2>/dev/null || true
-kill "$XVFB_PID" 2>/dev/null || true
-wait
+runuser -u kasm-user -- python3 /tmp/browser-cdp-relay.py &
+exec runuser -u kasm-user -- /dockerstartup/kasm_default_profile.sh /dockerstartup/vnc_startup.sh /dockerstartup/kasm_startup.sh --wait

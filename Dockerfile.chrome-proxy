@@ -1,0 +1,11 @@
+FROM nginx:alpine
+
+COPY scripts/chrome-proxy-entrypoint.sh /chrome-proxy-entrypoint.sh
+RUN chmod +x /chrome-proxy-entrypoint.sh
+
+ENV UPSTREAM_HOST=chrome-0
+ENV UPSTREAM_PORT=6901
+
+EXPOSE 8080
+
+ENTRYPOINT ["/chrome-proxy-entrypoint.sh"]
