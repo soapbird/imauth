@@ -109,7 +109,7 @@ impl LoginUseCase {
             return;
         }
 
-        let browser_session = match self.browser.acquire().await {
+        let mut browser_session = match self.browser.acquire().await {
             Ok(b) => b,
             Err(e) => {
                 session.transition(SessionState::Failed, Some(format!("Browser error: {e}")));
@@ -124,7 +124,7 @@ impl LoginUseCase {
             return;
         }
 
-        let page = match browser_session.new_page().await {
+        let mut page = match browser_session.new_page().await {
             Ok(p) => p,
             Err(e) => {
                 session.transition(
@@ -171,9 +171,20 @@ impl LoginUseCase {
             return;
         }
 
-        // Poll cookies until session cookie appears or timeout
+        // Poll cookies until session cookie appears or timeout.
+        //
+        // The CDP WebSocket to Chrome can reset mid-login (observed as
+        // `ResetWithoutClosingHandshake`). When it does, the held connection is
+        // dead and every cookie read fails until timeout, stranding an
+        // otherwise-successful user login. Reconnect after repeated failures:
+        // cookies persist in the Chrome profile, so a fresh connection — and a
+        // fresh page on the login URL, which redirects to the feed once the user
+        // is signed in — still sees the session cookie. The user's own login tab
+        // is left open (we never close it on reconnect).
         let deadline = tokio::time::Instant::now() + self.login_timeout;
         let mut cookies = Vec::new();
+        let mut consecutive_errors = 0u32;
+        const MAX_ERRORS_BEFORE_RECONNECT: u32 = 3;
 
         loop {
             if tx.is_closed() {
@@ -193,6 +204,7 @@ impl LoginUseCase {
 
             match page.get_cookies().await {
                 Ok(raw_cookies) => {
+                    consecutive_errors = 0;
                     match classify_auth_state(raw_cookies, platform) {
                         crate::domain::auth::AuthCheckpoint::Connected(filtered) => {
                             session.transition(
@@ -206,7 +218,69 @@ impl LoginUseCase {
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(session_id = %session.id, "cookie poll error: {e}");
+                    consecutive_errors += 1;
+                    tracing::warn!(
+                        session_id = %session.id,
+                        "cookie poll error (#{consecutive_errors}): {e}"
+                    );
+
+                    if consecutive_errors >= MAX_ERRORS_BEFORE_RECONNECT {
+                        tracing::warn!(
+                            session_id = %session.id,
+                            "CDP connection appears dead; reconnecting to Chrome"
+                        );
+
+                        // Drop the dead connection (and its pool permit) before
+                        // re-acquiring, or the single-permit pool would dead-lock
+                        // waiting on itself. Do NOT close the page — the CDP link
+                        // is already gone and the user's login tab must survive.
+                        drop(page);
+                        drop(browser_session);
+
+                        browser_session = match self.browser.acquire().await {
+                            Ok(b) => b,
+                            Err(e) => {
+                                session.transition(
+                                    SessionState::Failed,
+                                    Some(format!("CDP reconnect failed: {e}")),
+                                );
+                                let _ = self.sessions.update(&session).await;
+                                send_or_warn(
+                                    &tx,
+                                    LoginEvent::Final(session, vec![]),
+                                    "reconnect-acquire-fail",
+                                )
+                                .await;
+                                return;
+                            }
+                        };
+
+                        page = match browser_session.new_page().await {
+                            Ok(p) => p,
+                            Err(e) => {
+                                session.transition(
+                                    SessionState::Failed,
+                                    Some(format!("CDP reconnect failed to open page: {e}")),
+                                );
+                                let _ = self.sessions.update(&session).await;
+                                send_or_warn(
+                                    &tx,
+                                    LoginEvent::Final(session, vec![]),
+                                    "reconnect-page-fail",
+                                )
+                                .await;
+                                return;
+                            }
+                        };
+
+                        if let Err(e) = page.navigate(platform.login_url(), 30).await {
+                            tracing::warn!(
+                                session_id = %session.id,
+                                "reconnect navigation failed (will retry cookies anyway): {e}"
+                            );
+                        }
+                        consecutive_errors = 0;
+                    }
                 }
             }
         }
