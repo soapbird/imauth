@@ -2,11 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.6.0] - 2026-06-29
+
+### Added
+- Containerized KasmVNC Chromium browser images (`imyounjs/imauth-chrome`) for the login viewer, with faster multiplatform deploy.
 
 ### Changed
 - Container images now publish to Docker Hub under the `imyounjs` namespace (`imyounjs/imauth`, `imyounjs/imauth-chrome`); GHCR publishing removed from the release pipeline.
 - `docker-compose.yml`/`docker-compose.dev.yml`: parameterized data root (`IMAUTH_DATA_ROOT`) and renamed viewer port vars to `IMAUTH_NOVNC_PORT_*`. noVNC auth stays disabled, so `IMAUTH_VNC_PASSWORD` can be left empty for immediate login.
+- **Breaking (config):** renamed environment variables — `IMAUTH_SERVER_ADDRESS` → `IMAUTH_URL`, `IMAUTH_SERVER_HOSTNAME` → `IMAUTH_HOSTNAME`, `IMAUTH_GRPC_HOST_PORT` → `IMAUTH_HOSTPORT`. Update your `.env` accordingly.
+- Reduced the default Chrome instance count from 3 to 1 (single shared browser); container/compose project renamed to `service-imauth`.
+
+### Removed
+- **Breaking (config):** `IMAUTH_METRICS_PORT` removed and the metrics server disabled.
+- **Breaking (config):** `IMAUTH_VNC_PASSWORD` removed; the VNC password is now fixed in the image (noVNC auth stays disabled).
+
+### Fixed
+- Login: reconnect the CDP WebSocket after repeated cookie-poll errors (`ResetWithoutClosingHandshake`). The dead connection no longer strands an otherwise-successful user login until timeout; a fresh page on the login URL still sees the persisted session cookie, and the user's login tab is never closed on reconnect.
 
 ## [0.5.0] - 2026-06-05
 
