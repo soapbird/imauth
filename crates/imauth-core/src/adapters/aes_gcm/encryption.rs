@@ -6,8 +6,8 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use rand::Rng;
 
 pub struct AesGcmEncryptionService {
@@ -162,7 +162,10 @@ mod tests {
         let result = AesGcmEncryptionService::from_key("not-valid-base64!!!");
         assert!(result.is_err());
         let is_encryption_err = matches!(result, Err(crate::ImauthError::Encryption(_)));
-        assert!(is_encryption_err, "expected Encryption error for invalid base64");
+        assert!(
+            is_encryption_err,
+            "expected Encryption error for invalid base64"
+        );
     }
 
     #[test]
@@ -170,8 +173,12 @@ mod tests {
         // 4 bytes → 6 standard base64 chars
         let result = AesGcmEncryptionService::from_key("YWJjZA==");
         assert!(result.is_err());
-        let is_32byte_err = matches!(&result, Err(crate::ImauthError::Encryption(msg)) if msg.contains("32 bytes"));
-        assert!(is_32byte_err, "expected 32-byte Encryption error for short key");
+        let is_32byte_err =
+            matches!(&result, Err(crate::ImauthError::Encryption(msg)) if msg.contains("32 bytes"));
+        assert!(
+            is_32byte_err,
+            "expected 32-byte Encryption error for short key"
+        );
     }
 
     #[test]
@@ -267,7 +274,10 @@ mod tests {
         let result = svc.decrypt("aGVsbG8gd29ybGQ"); // "hello world" base64, 11 bytes
         assert!(result.is_err());
         let is_short_err = matches!(&result, Err(crate::ImauthError::Encryption(msg)) if msg.contains("too short"));
-        assert!(is_short_err, "expected 'too short' error for short ciphertext");
+        assert!(
+            is_short_err,
+            "expected 'too short' error for short ciphertext"
+        );
     }
 
     #[test]
@@ -278,7 +288,13 @@ mod tests {
         // encrypt() always outputs standard base64 — decrypt accepts it via first decoder
         assert_eq!(svc.decrypt(&ct).unwrap(), "imlinks payload");
         // Now verify the URL-safe variants of the same ciphertext also decrypt
-        assert_eq!(svc.decrypt(&to_url_safe_padded(&ct)).unwrap(), "imlinks payload");
-        assert_eq!(svc.decrypt(&to_url_safe_no_pad(&ct)).unwrap(), "imlinks payload");
+        assert_eq!(
+            svc.decrypt(&to_url_safe_padded(&ct)).unwrap(),
+            "imlinks payload"
+        );
+        assert_eq!(
+            svc.decrypt(&to_url_safe_no_pad(&ct)).unwrap(),
+            "imlinks payload"
+        );
     }
 }

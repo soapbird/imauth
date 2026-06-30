@@ -115,7 +115,10 @@ mod tests {
     #[test]
     fn transition_to_waiting_for_user_sets_viewer_url_input_type() {
         let mut s = session();
-        s.transition(SessionState::WaitingForUser, Some("Log in via browser".into()));
+        s.transition(
+            SessionState::WaitingForUser,
+            Some("Log in via browser".into()),
+        );
         assert_eq!(s.state, SessionState::WaitingForUser);
         assert!(s.requires_input);
         assert_eq!(s.input_type.as_deref(), Some("viewer_url"));

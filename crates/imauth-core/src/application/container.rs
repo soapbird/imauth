@@ -47,8 +47,10 @@ impl AppContainer {
 
         let pool = sqlite::init_pool(&config).await?;
         sqlite::run_migrations(&pool).await?;
-        let sessions: Arc<dyn SessionRepository> = Arc::new(SqliteSessionRepository::new(pool.clone()));
-        let cookies: Arc<dyn CookieRepository> = Arc::new(SqliteCookieRepository::new(pool.clone()));
+        let sessions: Arc<dyn SessionRepository> =
+            Arc::new(SqliteSessionRepository::new(pool.clone()));
+        let cookies: Arc<dyn CookieRepository> =
+            Arc::new(SqliteCookieRepository::new(pool.clone()));
         let credentials: Arc<dyn CredentialRepository> = Arc::new(SqliteCredentialRepository::new(
             pool.clone(),
             encryption.clone(),

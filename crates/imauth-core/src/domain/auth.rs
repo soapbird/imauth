@@ -62,19 +62,13 @@ mod tests {
 
     #[test]
     fn naver_session_cookie_returns_connected() {
-        let cp = classify_auth_state(
-            vec![cookie("NID_AUT", ".naver.com")],
-            Platform::Naver,
-        );
+        let cp = classify_auth_state(vec![cookie("NID_AUT", ".naver.com")], Platform::Naver);
         assert!(matches!(cp, AuthCheckpoint::Connected(_)));
     }
 
     #[test]
     fn naver_wrong_domain_returns_pending() {
-        let cp = classify_auth_state(
-            vec![cookie("NID_AUT", ".example.com")],
-            Platform::Naver,
-        );
+        let cp = classify_auth_state(vec![cookie("NID_AUT", ".example.com")], Platform::Naver);
         assert!(matches!(cp, AuthCheckpoint::Pending));
     }
 }

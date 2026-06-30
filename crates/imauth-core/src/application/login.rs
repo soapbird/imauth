@@ -77,11 +77,7 @@ impl LoginUseCase {
         }
     }
 
-    pub async fn execute(
-        &self,
-        platform: Platform,
-        tx: mpsc::Sender<LoginEvent>,
-    ) {
+    pub async fn execute(&self, platform: Platform, tx: mpsc::Sender<LoginEvent>) {
         let _timer = LoginTimer::new(platform.as_str());
         let id = uuid::Uuid::new_v4().to_string();
         let initial = Session::new(id, platform.as_str().to_string());
@@ -95,7 +91,12 @@ impl LoginUseCase {
                     SessionState::Failed,
                     Some("Failed to create session".into()),
                 );
-                send_or_warn(&tx, LoginEvent::Final(failed, vec![]), "session-create-fail").await;
+                send_or_warn(
+                    &tx,
+                    LoginEvent::Final(failed, vec![]),
+                    "session-create-fail",
+                )
+                .await;
                 return;
             }
         };
@@ -114,7 +115,12 @@ impl LoginUseCase {
             Err(e) => {
                 session.transition(SessionState::Failed, Some(format!("Browser error: {e}")));
                 let _ = self.sessions.update(&session).await;
-                send_or_warn(&tx, LoginEvent::Final(session, vec![]), "browser-acquire-fail").await;
+                send_or_warn(
+                    &tx,
+                    LoginEvent::Final(session, vec![]),
+                    "browser-acquire-fail",
+                )
+                .await;
                 return;
             }
         };
@@ -144,10 +150,7 @@ impl LoginUseCase {
         let _ = self.sessions.update(&session).await;
 
         if let Err(e) = page.navigate(platform.login_url(), 30).await {
-            session.transition(
-                SessionState::Failed,
-                Some(format!("Navigation error: {e}")),
-            );
+            session.transition(SessionState::Failed, Some(format!("Navigation error: {e}")));
             let _ = self.sessions.update(&session).await;
             send_or_warn(&tx, LoginEvent::Final(session, vec![]), "navigate-fail").await;
             return;
@@ -361,12 +364,16 @@ mod tests {
         )
     }
 
-    fn happy_browser_with_page(page: Box<dyn crate::ports::browser::PageDriver>) -> MockBrowserSessionFactory {
+    fn happy_browser_with_page(
+        page: Box<dyn crate::ports::browser::PageDriver>,
+    ) -> MockBrowserSessionFactory {
         let mut factory = MockBrowserSessionFactory::new();
         factory.expect_acquire().return_once(|| {
             let mut session = MockBrowserSession::new();
             session.expect_new_page().return_once(move || Ok(page));
-            session.expect_viewer_url().returning(|| "http://localhost:6101/index.html".to_string());
+            session
+                .expect_viewer_url()
+                .returning(|| "http://localhost:6101/index.html".to_string());
             Ok(Box::new(session))
         });
         factory

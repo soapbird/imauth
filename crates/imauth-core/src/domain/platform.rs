@@ -52,10 +52,11 @@ impl Platform {
     }
 
     fn cookie_matches_domain(&self, cookie: &Cookie) -> bool {
-        let cookie_domain = cookie.domain.trim_start_matches('.');
-        self.cookie_domains()
-            .iter()
-            .any(|allow| cookie_domain.eq_ignore_ascii_case(allow.trim_start_matches('.')))
+        let cookie_domain = cookie.domain.trim_start_matches('.').to_ascii_lowercase();
+        self.cookie_domains().iter().any(|allow| {
+            let allow = allow.trim_start_matches('.').to_ascii_lowercase();
+            cookie_domain == allow || cookie_domain.ends_with(&format!(".{allow}"))
+        })
     }
 
     pub fn filter_cookies(&self, cookies: Vec<Cookie>) -> Vec<Cookie> {
@@ -173,6 +174,24 @@ mod tests {
         let cookies = vec![cookie("sessionid", "instagram.com")];
         let kept = Platform::Instagram.filter_cookies(cookies);
         assert_eq!(kept.len(), 1);
+    }
+
+    #[test]
+    fn filter_cookies_keeps_matching_subdomains() {
+        let cookies = vec![
+            cookie("sessionid", "www.instagram.com"),
+            cookie("bar", "m.threads.net"),
+        ];
+        let kept = Platform::Threads.filter_cookies(cookies);
+        assert_eq!(kept.len(), 2);
+        assert!(kept.iter().any(|c| c.domain == "www.instagram.com"));
+        assert!(kept.iter().any(|c| c.domain == "m.threads.net"));
+    }
+
+    #[test]
+    fn has_session_cookie_accepts_matching_subdomain() {
+        let cookies = vec![cookie("sessionid", "www.instagram.com")];
+        assert!(Platform::Threads.has_session_cookie(&cookies));
     }
 
     #[test]
