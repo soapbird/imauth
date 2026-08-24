@@ -21,6 +21,7 @@ Thumbs.db
 
 # Test/data
 .imauth/
+datasource/records/*/raw/
 *.db
 *.db-journal
 *.db-shm
@@ -57,3 +58,5 @@ sdk/typescript/*.log
 .venv/
 **/.venv/
 .gstack/
+.gjc/
+.debug-journal.md
