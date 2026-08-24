@@ -37,8 +37,8 @@ jobs:
           .venv/bin/pip install -e . pytest grpcio-tools
           .venv/bin/python -m grpc_tools.protoc \
             -I../../proto \
-            --python_out=imauth \
-            --grpc_python_out=imauth \
+            --python_out=. \
+            --grpc_python_out=. \
             ../../proto/imauth/v1/*.proto
           .venv/bin/python -m pytest tests/ -v
 

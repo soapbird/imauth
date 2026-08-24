@@ -38,8 +38,7 @@ def cookie_from_proto(c) -> Cookie:
 
 
 def cookie_to_proto(c: Cookie):
-    from imauth.v1 import session_pb2
-    return session_pb2.Cookie(
+    return common_pb2.Cookie(
         name=c.name,
         value=c.value,
         domain=c.domain,
