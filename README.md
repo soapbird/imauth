@@ -9,6 +9,7 @@ Browser-automation-based authentication service with gRPC API. Supports headless
 cp .env.template .env
 # Edit .env:
 #   - IMAUTH_ENCRYPTION_KEY  (required, 32-byte base64)
+#   - IMAUTH_VIEWER_TOKEN    (required, generate with `openssl rand -hex 32`)
 #   - IMAUTH_API_KEY         (recommended for production)
 
 # 2. Start all services
@@ -23,10 +24,20 @@ docker compose ps
 | Host Port | Container / Service | Purpose                      | Required             |
 | --------- | ------------------- | ---------------------------- | -------------------- |
 | **6100**  | `server:50051`      | gRPC API                     | ✅ Always            |
-| **6101**  | `chrome-0:6080`     | Kasm browser viewer          | ✅ User-driven login |
+| **6101**  | `chrome-0-proxy:8080` | Kasm browser viewer (loopback by default) | ✅ User-driven login |
 | 9090      | `server:9090`       | Prometheus metrics           | Optional             |
 
 > **Note:** All external ports live in the `610X` range to avoid collisions with other services.
+
+The viewer proxy requires `IMAUTH_VIEWER_TOKEN`. A valid token in the generated
+viewer URL bootstraps an `HttpOnly`, `SameSite=Strict` cookie, which authorizes
+the viewer's subsequent assets and WebSocket connection. Proxy access logs are
+disabled so query tokens are not recorded.
+
+The viewer is published on `127.0.0.1` by default. Set
+`IMAUTH_NOVNC_BIND_ADDR=0.0.0.0` only when another machine must open the viewer,
+and restrict the port with a firewall or private network. Treat viewer URLs as
+secrets because they contain the configured token.
 
 ### Internal-only Ports (not exposed to host)
 
@@ -42,9 +53,11 @@ All environment variables use the `IMAUTH_` prefix.
 | ------------------------------ | ----------- | ------------------------------------------------ |
 | `IMAUTH_ENCRYPTION_KEY`        | —           | **Required.** 32-byte base64-encoded AES-256 key |
 | `IMAUTH_API_KEY`               | —           | gRPC API key for client auth                     |
+| `IMAUTH_VIEWER_TOKEN`          | —           | **Required.** Static noVNC viewer access token   |
 | `IMAUTH_HOSTNAME`              | `localhost` | Hostname used in Kasm browser viewer URLs        |
 | `IMAUTH_HOSTPORT`              | `6100`      | Host port mapped to gRPC (50051)                 |
 | `IMAUTH_NOVNC_PORT_0`          | `6101`      | Host port for noVNC viewer                        |
+| `IMAUTH_NOVNC_BIND_ADDR`       | `127.0.0.1` | Host address used to publish the viewer           |
 | `IMAUTH_DATA`                  | `../imauth-data` | Host directory for persisted chrome/server data |
 
 

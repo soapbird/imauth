@@ -2,7 +2,6 @@ x-chrome: &chrome
   image: imyounjs/imauth-chrome:latest
   shm_size: "2gb"
   restart: unless-stopped
-  user: "0:0"
   environment:
     VNC_RESOLUTION: ${BROWSER_KASM_RESOLUTION:-1366x768}
     # KasmVNC needs a non-empty password to start its daemon. Auth is disabled
@@ -36,21 +35,21 @@ services:
         condition: service_healthy
     environment:
       UPSTREAM_HOST: chrome-0
+      IMAUTH_VIEWER_TOKEN: ${IMAUTH_VIEWER_TOKEN}
     ports:
-      - "${IMAUTH_NOVNC_PORT_0:-6101}:8080"
+      - "${IMAUTH_NOVNC_BIND_ADDR:-127.0.0.1}:${IMAUTH_NOVNC_PORT_0:-6101}:8080"
 
   server:
     container_name: imauth-server
     image: imyounjs/imauth:latest
     restart: unless-stopped
-    user: "0:0"
     environment:
       - IMAUTH_CDP_URLS=http://chrome-0:9223
       - IMAUTH_GRPC_ADDR=0.0.0.0:50051
       - IMAUTH_DATA_DIR=/data/.imauth/data
       - IMAUTH_ENCRYPTION_KEY=${IMAUTH_ENCRYPTION_KEY}
       - IMAUTH_API_KEY=${IMAUTH_API_KEY}
-      - IMAUTH_BROWSER_VIEWER_URLS=http://${IMAUTH_HOSTNAME:-localhost}:${IMAUTH_NOVNC_PORT_0:-6101}/index.html
+      - IMAUTH_BROWSER_VIEWER_URLS=http://${IMAUTH_HOSTNAME:-localhost}:${IMAUTH_NOVNC_PORT_0:-6101}/index.html?token=${IMAUTH_VIEWER_TOKEN}
     volumes:
       - ${IMAUTH_DATA:-../imauth-data}/imauth:/data/.imauth
     depends_on:
