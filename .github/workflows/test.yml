@@ -51,9 +51,18 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install -e . anyio pytest grpcio-tools ruff==0.16.4
+          .venv/bin/pip install -e . anyio basedpyright==1.39.0 grpcio-tools==1.83.0 pytest ruff==0.16.4
           make quality PYTHON=.venv/bin/python
           make test PYTHON=.venv/bin/python
+      - name: verify wheel protobuf runtime compatibility
+        working-directory: sdk/python
+        run: |
+          wheel_dir=$(mktemp -d)
+          python -m pip wheel --no-deps --wheel-dir "$wheel_dir" .
+          python -m venv "$wheel_dir/.venv"
+          "$wheel_dir/.venv/bin/pip" install --upgrade pip
+          "$wheel_dir/.venv/bin/pip" install "$wheel_dir"/imauth-*.whl
+          "$wheel_dir/.venv/bin/python" -c 'from imauth.v1 import auth_pb2; print(auth_pb2.__name__)'
 
   ts-sdk:
     runs-on: ubuntu-latest

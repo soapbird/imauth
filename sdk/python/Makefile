@@ -1,7 +1,7 @@
 PYTHON ?= $(if $(wildcard .venv/bin/python),$(CURDIR)/.venv/bin/python,python3)
 PROTO_ROOT := ../../proto
 
-.PHONY: generate lint format format-check quality test
+.PHONY: generate lint format format-check quality test typecheck
 
 generate:
 	$(PYTHON) -m grpc_tools.protoc \
@@ -23,7 +23,10 @@ format-check:
 	$(PYTHON) -m ruff format --check --no-respect-gitignore imauth/v1/*.py
 	$(PYTHON) -m ruff format --check imauth tests
 
-quality: generate lint format-check
+typecheck:
+	$(PYTHON) -m basedpyright --level error imauth tests
+
+quality: generate lint format-check typecheck
 
 test:
 	$(PYTHON) -m pytest tests/ -v
