@@ -69,9 +69,9 @@ def _cmd_cookies(client: ImauthClient, args: argparse.Namespace) -> int:
 
 
 def _cmd_validate(client: ImauthClient, args: argparse.Namespace) -> int:
-    valid = client.validate_session(Platform(args.platform))
-    _emit({"platform": args.platform, "valid": valid})
-    return 0 if valid else 1
+    validation = client.validate_session_details(Platform(args.platform))
+    _emit({"platform": args.platform, **validation.model_dump()})
+    return 0 if validation.valid else 1
 
 
 def _cmd_connections(client: ImauthClient, _args: argparse.Namespace) -> int:

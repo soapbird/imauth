@@ -6,6 +6,7 @@ target/
 crates/imauth-proto/src/generated/imauth.v1.rs
 sdk/python/imauth/v1/*_pb2.py
 sdk/python/imauth/v1/*_pb2_grpc.py
+sdk/python/imauth/v1/*_pb2.pyi
 
 # IDE
 .idea/

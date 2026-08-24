@@ -12,9 +12,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import grpc
+import pytest
 
 from imauth import async_client as ac
 from imauth.async_client import AsyncImauthClient
+from imauth.exceptions import ImauthConnectionError
 from imauth.models import AuthStatus, CredentialInfo, Platform
 
 CONNECTED_STATUS: Final = 7
@@ -94,6 +96,49 @@ def test_async_get_cookies():
 
     cookies = anyio.run(run)
     assert [ck.name for ck in cookies] == ["csrftoken"]
+
+
+def test_async_validate_session_details():
+    c = _make_client()
+    fake_stub = MagicMock()
+    fake_stub.ValidateSession = AsyncMock(
+        return_value=types.SimpleNamespace(
+            valid=True,
+            expires_at=1_900_000_000,
+            session_cookie_name="sessionid",
+        )
+    )
+
+    async def run():
+        with patch.object(
+            ac.session_pb2_grpc, "SessionServiceStub", return_value=fake_stub
+        ):
+            return await c.validate_session_details(Platform.INSTAGRAM)
+
+    details = anyio.run(run)
+    assert details.expires_at == 1_900_000_000
+    assert details.session_cookie_name == "sessionid"
+
+
+def test_async_get_cookies_maps_unavailable_to_connection_error():
+    c = _make_client()
+    fake_stub = MagicMock()
+    fake_stub.GetCookies = AsyncMock(
+        side_effect=grpc.aio.AioRpcError(
+            grpc.StatusCode.UNAVAILABLE,
+            grpc.aio.Metadata(),
+            grpc.aio.Metadata(),
+        )
+    )
+
+    async def run():
+        with patch.object(
+            ac.session_pb2_grpc, "SessionServiceStub", return_value=fake_stub
+        ):
+            await c.get_cookies(Platform.INSTAGRAM)
+
+    with pytest.raises(ImauthConnectionError):
+        anyio.run(run)
 
 
 def test_async_export_netscape():

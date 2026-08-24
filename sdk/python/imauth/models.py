@@ -2,7 +2,7 @@
 
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Platform(str, Enum):
@@ -36,7 +36,7 @@ class AuthEvent(BaseModel):
     message: str = ""
     requires_input: bool = False
     input_type: str = ""
-    cookies: list[Cookie] = []
+    cookies: list[Cookie] = Field(default_factory=list)
     screenshot: bytes = b""
     viewer_url: str = ""
 
@@ -46,3 +46,9 @@ class CredentialInfo(BaseModel):
     username: str
     has_password: bool
     twofa_method: str = ""
+
+
+class SessionValidation(BaseModel):
+    valid: bool
+    expires_at: int
+    session_cookie_name: str

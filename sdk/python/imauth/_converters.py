@@ -3,10 +3,14 @@
 from imauth.models import AuthEvent, AuthStatus, Cookie, Platform
 from imauth.v1 import common_pb2
 
-_PLATFORM_TO_PROTO = {Platform.INSTAGRAM: 1, Platform.THREADS: 2, Platform.NAVER: 3}
+_PLATFORM_TO_PROTO = {
+    Platform.INSTAGRAM: common_pb2.Platform.PLATFORM_INSTAGRAM,
+    Platform.THREADS: common_pb2.Platform.PLATFORM_THREADS,
+    Platform.NAVER: common_pb2.Platform.PLATFORM_NAVER,
+}
 _PROTO_TO_PLATFORM = {1: "instagram", 2: "threads", 3: "naver"}
 
-_STATUS_MAP = {
+_STATUS_MAP: dict[int, AuthStatus] = {
     common_pb2.AuthStatus.AUTH_STATUS_IDLE: AuthStatus.IDLE,
     common_pb2.AuthStatus.AUTH_STATUS_LOADING: AuthStatus.LOADING,
     common_pb2.AuthStatus.AUTH_STATUS_AUTHENTICATING: AuthStatus.AUTHENTICATING,
@@ -16,8 +20,11 @@ _STATUS_MAP = {
 }
 
 
-def platform_to_proto(platform: Platform) -> int:
-    return _PLATFORM_TO_PROTO.get(platform, 0)
+def platform_to_proto(platform: Platform) -> common_pb2.Platform:
+    return _PLATFORM_TO_PROTO.get(
+        platform,
+        common_pb2.Platform.PLATFORM_UNSPECIFIED,
+    )
 
 
 def platform_from_proto(value: int) -> str:
@@ -61,16 +68,6 @@ def auth_event_from_proto(event) -> AuthEvent:
     )
 
 
-def auth_response_to_event(resp) -> AuthEvent:
-    status = AuthStatus.CONNECTED if resp.success else AuthStatus.FAILED
-    return AuthEvent(
-        status=status,
-        session_id=getattr(resp, "session_id", ""),
-        message=resp.message,
-        cookies=[cookie_from_proto(c) for c in resp.cookies],
-    )
-
-
 def status_response_to_event(resp, session_id: str) -> AuthEvent:
     """Convert a StatusResponse into an AuthEvent. The proto field is the same
     int enum used by AuthEvent (not a string), so reuse `_STATUS_MAP`."""
@@ -78,6 +75,8 @@ def status_response_to_event(resp, session_id: str) -> AuthEvent:
         status=_STATUS_MAP.get(getattr(resp, "status", 0), AuthStatus.IDLE),
         session_id=session_id,
         message=getattr(resp, "message", ""),
+        requires_input=getattr(resp, "requires_input", False),
+        input_type=getattr(resp, "input_type", ""),
     )
 
 

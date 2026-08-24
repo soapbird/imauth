@@ -17,6 +17,7 @@ import pytest
 
 from imauth import client as client_module
 from imauth.client import ImauthClient
+from imauth.exceptions import ImauthConnectionError, ImauthError
 from imauth.models import AuthStatus, Cookie, CredentialInfo, Platform
 
 CONNECTED_STATUS: Final = 7
@@ -154,6 +155,47 @@ def test_get_cookies_empty_list():
     assert cookies == []
 
 
+def test_get_cookies_maps_unavailable_to_connection_error():
+    c = _make_client()
+    fake_stub = MagicMock()
+    fake_stub.GetCookies.side_effect = _RpcError(grpc.StatusCode.UNAVAILABLE)
+
+    with (
+        patch.object(
+            client_module.session_pb2_grpc,
+            "SessionServiceStub",
+            return_value=fake_stub,
+        ),
+        pytest.raises(ImauthConnectionError),
+    ):
+        c.get_cookies(Platform.INSTAGRAM)
+
+
+def test_validate_session_details_preserves_response_fields():
+    c = _make_client()
+    fake_stub = MagicMock()
+    fake_stub.ValidateSession.return_value = types.SimpleNamespace(
+        valid=True,
+        expires_at=1_900_000_000,
+        session_cookie_name="sessionid",
+    )
+
+    with patch.object(
+        client_module.session_pb2_grpc,
+        "SessionServiceStub",
+        return_value=fake_stub,
+    ):
+        details = c.validate_session_details(Platform.INSTAGRAM)
+        valid = c.validate_session(Platform.INSTAGRAM)
+
+    assert details.model_dump() == {
+        "valid": True,
+        "expires_at": 1_900_000_000,
+        "session_cookie_name": "sessionid",
+    }
+    assert valid is True
+
+
 def test_export_netscape_returns_content_string():
     c = _make_client()
     fake_stub = MagicMock()
@@ -287,7 +329,7 @@ def test_get_credentials_reraises_non_not_found():
             "CredentialServiceStub",
             return_value=fake_stub,
         ),
-        pytest.raises(grpc.RpcError),
+        pytest.raises(ImauthError),
     ):
         c.get_credentials(Platform.INSTAGRAM)
 
@@ -323,20 +365,3 @@ def test_platform_from_proto_helper():
 def test_auth_event_from_proto_unknown_status_falls_back_to_idle():
     evt = client_module._auth_event_from_proto(_stub_auth_event(status=9999))
     assert evt.status == AuthStatus.IDLE
-
-
-def test_auth_response_to_event_success_maps_to_connected():
-    from imauth._converters import auth_response_to_event
-
-    resp = types.SimpleNamespace(success=True, message="hi", cookies=[])
-    evt = auth_response_to_event(resp)
-    assert evt.status == AuthStatus.CONNECTED
-    assert evt.message == "hi"
-
-
-def test_auth_response_to_event_failure_maps_to_failed():
-    from imauth._converters import auth_response_to_event
-
-    resp = types.SimpleNamespace(success=False, message="nope", cookies=[])
-    evt = auth_response_to_event(resp)
-    assert evt.status == AuthStatus.FAILED

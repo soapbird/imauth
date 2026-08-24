@@ -7,6 +7,7 @@ generate:
 	$(PYTHON) -m grpc_tools.protoc \
 		-I$(PROTO_ROOT) \
 		--python_out=. \
+		--pyi_out=. \
 		--grpc_python_out=. \
 		$(PROTO_ROOT)/imauth/v1/*.proto
 	$(PYTHON) -m ruff format --no-respect-gitignore imauth/v1/*.py
