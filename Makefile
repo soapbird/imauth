@@ -1,8 +1,8 @@
 PROJECT   := imauth
-REGISTRY  ?= docker.io/imyounjs
+REGISTRY  ?= docker.lowapple.io
 IMAGE     := $(REGISTRY)/$(PROJECT)
 CHROME_IMAGE ?= $(REGISTRY)/$(PROJECT)-chrome
-CHROME_PROXY_IMAGE ?= imyounjs/chrome-proxy
+CHROME_PROXY_IMAGE ?= $(REGISTRY)/$(PROJECT)-chrome-proxy
 VERSION   := $(shell grep '^version' crates/imauth-server/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
 GIT_HASH  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 PLATFORMS := linux/amd64,linux/arm64

@@ -75,24 +75,27 @@ Update `.env` accordingly before starting each stack.
 
 ## Container Images
 
-Release images are published to Docker Hub on every `v*` tag:
+Release images are published to `docker.lowapple.io` on every `v*` tag:
 
 | Image                       | Contents                               |
 | --------------------------- | -------------------------------------- |
-| `imyounjs/imauth`           | gRPC server + CLI (slim runtime)       |
-| `imyounjs/imauth-chrome`    | Chromium + Kasm browser viewer sidecar |
+| `docker.lowapple.io/imauth`              | gRPC server + CLI (slim runtime)       |
+| `docker.lowapple.io/imauth-chrome`       | Chromium + Kasm browser viewer sidecar |
+| `docker.lowapple.io/imauth-chrome-proxy` | Authenticated browser viewer proxy     |
 
 ```bash
 # Pull a specific release (or :latest)
-docker pull imyounjs/imauth:v0.4.1
-docker pull imyounjs/imauth-chrome:v0.4.1
+docker pull docker.lowapple.io/imauth:v0.4.1
+docker pull docker.lowapple.io/imauth-chrome:v0.4.1
+docker pull docker.lowapple.io/imauth-chrome-proxy:v0.4.1
 ```
 
 Local image builds use the Makefile:
 
 ```bash
-make docker         # build imyounjs/imauth
-make docker-chrome  # build imyounjs/imauth-chrome
+make docker              # build docker.lowapple.io/imauth
+make docker-chrome       # build docker.lowapple.io/imauth-chrome
+make docker-chrome-proxy # build docker.lowapple.io/imauth-chrome-proxy
 make deploy-all     # buildx multi-arch build + push all images
 ```
 

@@ -1,5 +1,5 @@
 x-chrome: &chrome
-  image: imyounjs/imauth-chrome:latest
+  image: docker.lowapple.io/imauth-chrome:latest
   shm_size: "2gb"
   restart: unless-stopped
   environment:
@@ -14,7 +14,7 @@ x-chrome: &chrome
     retries: 10
 
 x-chrome-proxy: &chrome-proxy
-  image: imyounjs/chrome-proxy:latest
+  image: docker.lowapple.io/imauth-chrome-proxy:latest
   restart: unless-stopped
 
 name: service-imauth
@@ -41,7 +41,7 @@ services:
 
   server:
     container_name: imauth-server
-    image: imyounjs/imauth:latest
+    image: docker.lowapple.io/imauth:latest
     restart: unless-stopped
     environment:
       - IMAUTH_CDP_URLS=http://chrome-0:9223

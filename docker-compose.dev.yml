@@ -116,7 +116,7 @@ services:
 
   chrome-0-proxy:
     container_name: imauth-chrome-proxy-0
-    image: imyounjs/chrome-proxy:latest
+    image: docker.lowapple.io/imauth-chrome-proxy:latest
     build:
       context: .
       dockerfile: Dockerfile.chrome-proxy
