@@ -1,5 +1,5 @@
 x-chrome: &chrome
-  image: imyounjs/chrome:latest
+  image: imyounjs/imauth-chrome:latest
   shm_size: "2gb"
   restart: unless-stopped
   user: "0:0"

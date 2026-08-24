@@ -79,7 +79,7 @@ Local image builds use the Makefile:
 
 ```bash
 make docker         # build imyounjs/imauth
-make docker-chrome  # build imyounjs/chrome
+make docker-chrome  # build imyounjs/imauth-chrome
 make deploy-all     # buildx multi-arch build + push all images
 ```
 
