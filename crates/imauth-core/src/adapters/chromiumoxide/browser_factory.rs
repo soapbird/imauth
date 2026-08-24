@@ -165,6 +165,66 @@ impl BrowserSessionFactory for PooledBrowserFactory {
     }
 }
 
+/// A held browser connection for a single login attempt (RAII).
+pub struct ChromiumOxideBrowserSession {
+    browser: Option<Browser>,
+    viewer_url: String,
+    _permit: OwnedSemaphorePermit,
+}
+
+impl ChromiumOxideBrowserSession {
+    fn inner(&self) -> Result<&Browser> {
+        self.browser
+            .as_ref()
+            .ok_or_else(|| ImauthError::Browser("browser session already released".into()))
+    }
+
+    pub fn viewer_url(&self) -> &str {
+        &self.viewer_url
+    }
+}
+
+#[async_trait]
+impl BrowserSession for ChromiumOxideBrowserSession {
+    async fn new_page(&self) -> Result<Box<dyn PageDriver>> {
+        let page = self
+            .inner()?
+            .new_page("about:blank")
+            .await
+            .map_err(|e| ImauthError::Browser(format!("Failed to create page: {e}")))?;
+        Ok(Box::new(ChromiumOxidePageDriver::new(page)))
+    }
+
+    async fn existing_pages(&self) -> Result<Vec<Box<dyn PageDriver>>> {
+        let pages = self
+            .inner()?
+            .pages()
+            .await
+            .map_err(|e| ImauthError::Browser(format!("Failed to list pages: {e}")))?;
+        Ok(pages
+            .into_iter()
+            .map(|p| Box::new(ChromiumOxidePageDriver::new(p)) as Box<dyn PageDriver>)
+            .collect())
+    }
+
+    fn viewer_url(&self) -> String {
+        self.viewer_url.clone()
+    }
+}
+
+impl Drop for ChromiumOxideBrowserSession {
+    fn drop(&mut self) {
+        let Some(browser) = self.browser.take() else {
+            return;
+        };
+        if tokio::runtime::Handle::try_current().is_err() {
+            tracing::warn!("Tokio runtime gone during browser drop; browser will close");
+            return;
+        }
+        drop(browser);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,65 +307,5 @@ mod tests {
             result,
             Err(ImauthError::Browser(message)) if message.contains("acquisition timed out")
         ));
-    }
-}
-
-/// A held browser connection for a single login attempt (RAII).
-pub struct ChromiumOxideBrowserSession {
-    browser: Option<Browser>,
-    viewer_url: String,
-    _permit: OwnedSemaphorePermit,
-}
-
-impl ChromiumOxideBrowserSession {
-    fn inner(&self) -> Result<&Browser> {
-        self.browser
-            .as_ref()
-            .ok_or_else(|| ImauthError::Browser("browser session already released".into()))
-    }
-
-    pub fn viewer_url(&self) -> &str {
-        &self.viewer_url
-    }
-}
-
-#[async_trait]
-impl BrowserSession for ChromiumOxideBrowserSession {
-    async fn new_page(&self) -> Result<Box<dyn PageDriver>> {
-        let page = self
-            .inner()?
-            .new_page("about:blank")
-            .await
-            .map_err(|e| ImauthError::Browser(format!("Failed to create page: {e}")))?;
-        Ok(Box::new(ChromiumOxidePageDriver::new(page)))
-    }
-
-    async fn existing_pages(&self) -> Result<Vec<Box<dyn PageDriver>>> {
-        let pages = self
-            .inner()?
-            .pages()
-            .await
-            .map_err(|e| ImauthError::Browser(format!("Failed to list pages: {e}")))?;
-        Ok(pages
-            .into_iter()
-            .map(|p| Box::new(ChromiumOxidePageDriver::new(p)) as Box<dyn PageDriver>)
-            .collect())
-    }
-
-    fn viewer_url(&self) -> String {
-        self.viewer_url.clone()
-    }
-}
-
-impl Drop for ChromiumOxideBrowserSession {
-    fn drop(&mut self) {
-        let Some(browser) = self.browser.take() else {
-            return;
-        };
-        if tokio::runtime::Handle::try_current().is_err() {
-            tracing::warn!("Tokio runtime gone during browser drop; browser will close");
-            return;
-        }
-        drop(browser);
     }
 }
