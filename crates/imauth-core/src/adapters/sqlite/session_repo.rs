@@ -1,6 +1,6 @@
 use crate::domain::session::{Session, SessionState};
 use crate::ports::repository::SessionRepository;
-use crate::Result;
+use crate::{ImauthError, Result};
 use async_trait::async_trait;
 use chrono::DateTime;
 use sqlx::SqlitePool;
@@ -46,7 +46,7 @@ impl SessionRepository for SqliteSessionRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(row.map(
+        row.map(
             |(
                 id,
                 platform,
@@ -56,19 +56,22 @@ impl SessionRepository for SqliteSessionRepository {
                 input_type,
                 created_at,
                 updated_at,
-            )| {
-                Session {
+            )|
+             -> Result<Session> {
+                let state = SessionState::from_str(&status).map_err(ImauthError::Database)?;
+                Ok(Session {
                     id,
                     platform,
-                    state: SessionState::from_str(&status).unwrap_or(SessionState::Idle),
+                    state,
                     message,
                     requires_input: requires_input != 0,
                     input_type,
                     created_at: DateTime::from_timestamp(created_at, 0).unwrap_or_default(),
                     updated_at: DateTime::from_timestamp(updated_at, 0).unwrap_or_default(),
-                }
+                })
             },
-        ))
+        )
+        .transpose()
     }
 
     async fn update(&self, session: &Session) -> Result<()> {
@@ -100,5 +103,31 @@ impl SessionRepository for SqliteSessionRepository {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::sqlite::run_migrations;
+
+    #[tokio::test]
+    async fn get_rejects_unknown_persisted_session_state() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        run_migrations(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO sessions (id, platform, status, created_at, updated_at) \
+             VALUES ('session-1', 'instagram', 'corrupt', 1, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let repo = SqliteSessionRepository::new(pool);
+
+        let error = repo.get("session-1").await.unwrap_err();
+
+        assert!(
+            matches!(error, ImauthError::Database(message) if message == "unknown session state: corrupt")
+        );
     }
 }
