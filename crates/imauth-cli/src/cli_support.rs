@@ -143,8 +143,10 @@ pub(crate) fn platform_to_proto(platform: &str) -> Result<i32, String> {
         "instagram" => Ok(ProtoPlatform::Instagram as i32),
         "threads" => Ok(ProtoPlatform::Threads as i32),
         "naver" => Ok(ProtoPlatform::Naver as i32),
+        "novelpia" => Ok(ProtoPlatform::Novelpia as i32),
+        "munpia" => Ok(ProtoPlatform::Munpia as i32),
         other => Err(format!(
-            "Unknown platform '{other}'. Expected one of: instagram, threads, naver"
+            "Unknown platform '{other}'. Expected one of: instagram, threads, naver, novelpia, munpia"
         )),
     }
 }

@@ -148,6 +148,8 @@ fn platform_to_proto_accepts_known_platforms_case_insensitive() {
     assert_eq!(platform_to_proto("THREADS").expect("THREADS"), 2);
     assert_eq!(platform_to_proto("naver").expect("naver"), 3);
     assert_eq!(platform_to_proto("NAVER").expect("NAVER"), 3);
+    assert_eq!(platform_to_proto("novelpia"), Ok(4));
+    assert_eq!(platform_to_proto("MUNPIA"), Ok(5));
 }
 
 #[test]
@@ -155,6 +157,8 @@ fn platform_to_proto_rejects_unknown_platform_with_helpful_message() {
     let error = platform_to_proto("facebook").expect_err("unsupported platform");
     assert!(error.contains("facebook"));
     assert!(error.contains("naver"));
+    assert!(error.contains("novelpia"));
+    assert!(error.contains("munpia"));
 }
 
 #[test]
