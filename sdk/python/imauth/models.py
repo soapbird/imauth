@@ -1,13 +1,15 @@
 """Pydantic models for imauth types."""
 
 from enum import Enum
-from typing import Optional
+
 from pydantic import BaseModel
+
 
 class Platform(str, Enum):
     INSTAGRAM = "instagram"
     THREADS = "threads"
     NAVER = "naver"
+
 
 class AuthStatus(str, Enum):
     IDLE = "idle"
@@ -16,6 +18,7 @@ class AuthStatus(str, Enum):
     WAITING_FOR_USER = "waiting_for_user"
     CONNECTED = "connected"
     FAILED = "failed"
+
 
 class Cookie(BaseModel):
     name: str
@@ -26,6 +29,7 @@ class Cookie(BaseModel):
     http_only: bool = False
     secure: bool = False
 
+
 class AuthEvent(BaseModel):
     status: AuthStatus
     session_id: str = ""
@@ -35,6 +39,7 @@ class AuthEvent(BaseModel):
     cookies: list[Cookie] = []
     screenshot: bytes = b""
     viewer_url: str = ""
+
 
 class CredentialInfo(BaseModel):
     platform: Platform

@@ -1,8 +1,7 @@
 """Shared proto <-> model converters used by both sync and async clients."""
 
-from imauth.v1 import common_pb2
 from imauth.models import AuthEvent, AuthStatus, Cookie, Platform
-
+from imauth.v1 import common_pb2
 
 _PLATFORM_TO_PROTO = {Platform.INSTAGRAM: 1, Platform.THREADS: 2, Platform.NAVER: 3}
 _PROTO_TO_PLATFORM = {1: "instagram", 2: "threads", 3: "naver"}

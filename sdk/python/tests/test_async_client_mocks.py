@@ -1,21 +1,23 @@
 """Mock-based tests for the asynchronous imauth Python client.
 
 We don't add pytest-asyncio as a dependency; instead we drive each coroutine
-through ``asyncio.run`` and mock the gRPC stubs with ``AsyncMock``.
+through ``anyio.run`` and mock the gRPC stubs with ``AsyncMock``.
 """
 
 from __future__ import annotations
 
-import asyncio
 import types
+from typing import Final
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import anyio
 import grpc
-import pytest
 
 from imauth import async_client as ac
 from imauth.async_client import AsyncImauthClient
-from imauth.models import AuthStatus, Cookie, CredentialInfo, Platform
+from imauth.models import AuthStatus, CredentialInfo, Platform
+
+CONNECTED_STATUS: Final = 7
 
 
 def _make_client() -> AsyncImauthClient:
@@ -24,15 +26,15 @@ def _make_client() -> AsyncImauthClient:
 
 
 def _stub_cookie(**overrides) -> types.SimpleNamespace:
-    base = dict(
-        name="sessionid",
-        value="abc",
-        domain=".instagram.com",
-        path="/",
-        expires=0,
-        http_only=True,
-        secure=True,
-    )
+    base = {
+        "name": "sessionid",
+        "value": "abc",
+        "domain": ".instagram.com",
+        "path": "/",
+        "expires": 0,
+        "http_only": True,
+        "secure": True,
+    }
     base.update(overrides)
     return types.SimpleNamespace(**base)
 
@@ -56,10 +58,8 @@ def test_async_login_streams_events():
     c = _make_client()
     fake_stub = MagicMock()
 
-    from imauth.v1 import common_pb2
-
     event = types.SimpleNamespace(
-        status=common_pb2.AuthStatus.AUTH_STATUS_CONNECTED,
+        status=CONNECTED_STATUS,
         message="ok",
         requires_input=False,
         input_type="",
@@ -69,13 +69,10 @@ def test_async_login_streams_events():
     fake_stub.Login = MagicMock(return_value=_AsyncIter([event]))
 
     async def run():
-        events = []
         with patch.object(ac.auth_pb2_grpc, "AuthServiceStub", return_value=fake_stub):
-            async for evt in c.login(Platform.INSTAGRAM):
-                events.append(evt)
-        return events
+            return [evt async for evt in c.login(Platform.INSTAGRAM)]
 
-    events = asyncio.run(run())
+    events = anyio.run(run)
     assert len(events) == 1
     assert events[0].status == AuthStatus.CONNECTED
     args, _ = fake_stub.Login.call_args
@@ -95,7 +92,7 @@ def test_async_get_cookies():
         ):
             return await c.get_cookies(Platform.INSTAGRAM)
 
-    cookies = asyncio.run(run())
+    cookies = anyio.run(run)
     assert [ck.name for ck in cookies] == ["csrftoken"]
 
 
@@ -112,7 +109,7 @@ def test_async_export_netscape():
         ):
             return await c.export_netscape(Platform.THREADS)
 
-    content = asyncio.run(run())
+    content = anyio.run(run)
     assert content.startswith("# Netscape")
 
 
@@ -129,7 +126,7 @@ def test_async_get_connection_status():
         ):
             return await c.get_connection_status()
 
-    status = asyncio.run(run())
+    status = anyio.run(run)
     assert status == {"instagram": True}
 
 
@@ -144,7 +141,7 @@ def test_async_save_credentials_serializes_request():
         ):
             await c.save_credentials(Platform.INSTAGRAM, "alice", "pw", "totp")
 
-    asyncio.run(run())
+    anyio.run(run)
     args, _ = fake_stub.Save.call_args
     assert args[0].username == "alice"
     assert args[0].twofa_method == "totp"
@@ -165,7 +162,7 @@ def test_async_get_credentials_happy_path():
         ):
             return await c.get_credentials(Platform.THREADS)
 
-    info = asyncio.run(run())
+    info = anyio.run(run)
     assert isinstance(info, CredentialInfo)
     assert info.platform == Platform.THREADS
     assert info.username == "bob"
@@ -175,14 +172,13 @@ def test_async_get_credentials_returns_none_on_not_found():
     c = _make_client()
     fake_stub = MagicMock()
 
-    class _NotFound(grpc.aio.AioRpcError):
-        def __init__(self):
-            pass
-
-        def code(self):
-            return grpc.StatusCode.NOT_FOUND
-
-    fake_stub.Get = AsyncMock(side_effect=_NotFound())
+    fake_stub.Get = AsyncMock(
+        side_effect=grpc.aio.AioRpcError(
+            grpc.StatusCode.NOT_FOUND,
+            grpc.aio.Metadata(),
+            grpc.aio.Metadata(),
+        )
+    )
 
     async def run():
         with patch.object(
@@ -190,7 +186,7 @@ def test_async_get_credentials_returns_none_on_not_found():
         ):
             return await c.get_credentials(Platform.INSTAGRAM)
 
-    assert asyncio.run(run()) is None
+    assert anyio.run(run) is None
 
 
 def test_async_close():
@@ -200,7 +196,7 @@ def test_async_close():
     async def run():
         await c.close()
 
-    asyncio.run(run())
+    anyio.run(run)
     c._channel.close.assert_awaited_once()
 
 

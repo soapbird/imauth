@@ -1,7 +1,6 @@
 """Unit tests for imauth Python SDK."""
 
-import pytest
-from imauth.models import Platform, AuthStatus, Cookie
+from imauth.models import AuthStatus, Cookie, Platform
 
 
 def test_platform_enum():

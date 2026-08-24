@@ -34,13 +34,9 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install -e . pytest grpcio-tools
-          .venv/bin/python -m grpc_tools.protoc \
-            -I../../proto \
-            --python_out=. \
-            --grpc_python_out=. \
-            ../../proto/imauth/v1/*.proto
-          .venv/bin/python -m pytest tests/ -v
+          .venv/bin/pip install -e . anyio pytest grpcio-tools ruff==0.16.4
+          make quality PYTHON=.venv/bin/python
+          make test PYTHON=.venv/bin/python
 
   ts-sdk:
     runs-on: ubuntu-latest
@@ -51,6 +47,8 @@ jobs:
           node-version: "20"
       - working-directory: sdk/typescript
         run: |
-          npm install
+          npm ci
+          npm run lint
+          npm run format:check
           npm test
           npm run build

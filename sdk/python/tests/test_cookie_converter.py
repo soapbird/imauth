@@ -7,9 +7,7 @@ from imauth.models import Cookie, Platform
 
 def test_update_cookies_serializes_common_proto_cookie():
     # Given: an SDK cookie and a SessionService stub.
-    with patch.object(
-        client_module.grpc, "insecure_channel", return_value=MagicMock()
-    ):
+    with patch.object(client_module.grpc, "insecure_channel", return_value=MagicMock()):
         client = ImauthClient("test:1234")
     fake_stub = MagicMock()
     cookie = Cookie(

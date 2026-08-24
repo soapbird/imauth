@@ -19,14 +19,15 @@ use imauth_core::{
         AppContainer,
     },
     config::Config,
-    ports::browser::{BrowserSessionFactory, BrowserSession, PageDriver},
+    ports::browser::{BrowserSession, BrowserSessionFactory, PageDriver},
 };
 use imauth_proto::generated::v1::{
     credential_service_client::CredentialServiceClient,
-    credential_service_server::CredentialServiceServer, session_service_client::SessionServiceClient,
-    session_service_server::SessionServiceServer, Cookie as ProtoCookie, DeleteCredentialRequest,
-    Empty, ExportRequest, GetCookiesRequest, GetCredentialRequest, Platform as ProtoPlatform,
-    SaveCredentialRequest, UpdateCookiesRequest, ValidateRequest,
+    credential_service_server::CredentialServiceServer,
+    session_service_client::SessionServiceClient, session_service_server::SessionServiceServer,
+    Cookie as ProtoCookie, DeleteCredentialRequest, Empty, ExportRequest, GetCookiesRequest,
+    GetCredentialRequest, Platform as ProtoPlatform, SaveCredentialRequest, UpdateCookiesRequest,
+    ValidateRequest,
 };
 use imauth_server::grpc::{CredentialGrpcService, SessionGrpcService};
 
@@ -135,7 +136,10 @@ async fn start_test_server(container: Arc<AppContainer>, api_key: Option<String>
 
     tokio::spawn(async move {
         tonic::transport::Server::builder()
-            .add_service(SessionServiceServer::with_interceptor(session, session_interceptor))
+            .add_service(SessionServiceServer::with_interceptor(
+                session,
+                session_interceptor,
+            ))
             .add_service(CredentialServiceServer::with_interceptor(
                 credential,
                 credential_interceptor,

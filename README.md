@@ -154,3 +154,6 @@ npm install   # from sdk/typescript/
 ## Development
 
 See [`AGENTS.md`](AGENTS.md) for build commands, testing guidelines, and project conventions.
+
+Run `make install-hooks` once after cloning. The pre-commit hook runs `make quality`,
+which checks Rust, Python SDK, and TypeScript SDK linting and formatting.

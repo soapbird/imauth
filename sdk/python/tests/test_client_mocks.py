@@ -9,6 +9,7 @@ each client method.
 from __future__ import annotations
 
 import types
+from typing import Final
 from unittest.mock import MagicMock, patch
 
 import grpc
@@ -18,6 +19,7 @@ from imauth import client as client_module
 from imauth.client import ImauthClient
 from imauth.models import AuthStatus, Cookie, CredentialInfo, Platform
 
+CONNECTED_STATUS: Final = 7
 
 # ---- helpers ----------------------------------------------------------------
 
@@ -33,15 +35,15 @@ def _make_client() -> ImauthClient:
 
 
 def _stub_cookie(**overrides) -> types.SimpleNamespace:
-    base = dict(
-        name="sessionid",
-        value="abc",
-        domain=".instagram.com",
-        path="/",
-        expires=0,
-        http_only=True,
-        secure=True,
-    )
+    base = {
+        "name": "sessionid",
+        "value": "abc",
+        "domain": ".instagram.com",
+        "path": "/",
+        "expires": 0,
+        "http_only": True,
+        "secure": True,
+    }
     base.update(overrides)
     return types.SimpleNamespace(**base)
 
@@ -57,6 +59,15 @@ def _stub_auth_event(status: int, message: str = "ok") -> types.SimpleNamespace:
     )
 
 
+class _RpcError(grpc.RpcError):
+    def __init__(self, code: grpc.StatusCode) -> None:
+        super().__init__()
+        self._code = code
+
+    def code(self) -> grpc.StatusCode:
+        return self._code
+
+
 # ---- login ------------------------------------------------------------------
 
 
@@ -64,11 +75,9 @@ def test_login_streams_events_and_serializes_request():
     c = _make_client()
     fake_stub = MagicMock()
 
-    # common_pb2.AuthStatus.AUTH_STATUS_CONNECTED -> AuthStatus.CONNECTED
-    from imauth.v1 import common_pb2
-
-    connected = common_pb2.AuthStatus.AUTH_STATUS_CONNECTED
-    fake_stub.Login.return_value = iter([_stub_auth_event(connected, "connected!")])
+    fake_stub.Login.return_value = iter(
+        [_stub_auth_event(CONNECTED_STATUS, "connected!")]
+    )
 
     with patch.object(
         client_module.auth_pb2_grpc, "AuthServiceStub", return_value=fake_stub
@@ -149,7 +158,10 @@ def test_export_netscape_returns_content_string():
     c = _make_client()
     fake_stub = MagicMock()
     fake_stub.ExportNetscape.return_value = types.SimpleNamespace(
-        content="# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\tabc\n"
+        content=(
+            "# Netscape HTTP Cookie File\n"
+            ".instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\tabc\n"
+        )
     )
 
     with patch.object(
@@ -195,9 +207,7 @@ def test_save_credentials_serializes_all_fields():
         "CredentialServiceStub",
         return_value=fake_stub,
     ):
-        c.save_credentials(
-            Platform.INSTAGRAM, "alice", "hunter2", twofa_method="totp"
-        )
+        c.save_credentials(Platform.INSTAGRAM, "alice", "hunter2", twofa_method="totp")
 
     args, _ = fake_stub.Save.call_args
     req = args[0]
@@ -251,8 +261,7 @@ def test_get_credentials_returns_none_on_not_found():
     c = _make_client()
     fake_stub = MagicMock()
 
-    err = grpc.RpcError()
-    err.code = lambda: grpc.StatusCode.NOT_FOUND  # type: ignore[method-assign]
+    err = _RpcError(grpc.StatusCode.NOT_FOUND)
     fake_stub.Get.side_effect = err
 
     with patch.object(
@@ -269,26 +278,32 @@ def test_get_credentials_reraises_non_not_found():
     c = _make_client()
     fake_stub = MagicMock()
 
-    err = grpc.RpcError()
-    err.code = lambda: grpc.StatusCode.INTERNAL  # type: ignore[method-assign]
+    err = _RpcError(grpc.StatusCode.INTERNAL)
     fake_stub.Get.side_effect = err
 
-    with patch.object(
-        client_module.credential_pb2_grpc,
-        "CredentialServiceStub",
-        return_value=fake_stub,
+    with (
+        patch.object(
+            client_module.credential_pb2_grpc,
+            "CredentialServiceStub",
+            return_value=fake_stub,
+        ),
+        pytest.raises(grpc.RpcError),
     ):
-        with pytest.raises(grpc.RpcError):
-            c.get_credentials(Platform.INSTAGRAM)
+        c.get_credentials(Platform.INSTAGRAM)
 
 
 # ---- close ------------------------------------------------------------------
 
 
 def test_close_closes_channel():
-    c = _make_client()
+    close_channel = MagicMock()
+    channel = MagicMock()
+    channel.close = close_channel
+    with patch.object(client_module.grpc, "insecure_channel", return_value=channel):
+        c = ImauthClient("test:1234")
+
     c.close()
-    c._channel.close.assert_called_once()
+    close_channel.assert_called_once()
 
 
 # ---- helper exercises -------------------------------------------------------
@@ -312,6 +327,7 @@ def test_auth_event_from_proto_unknown_status_falls_back_to_idle():
 
 def test_auth_response_to_event_success_maps_to_connected():
     from imauth._converters import auth_response_to_event
+
     resp = types.SimpleNamespace(success=True, message="hi", cookies=[])
     evt = auth_response_to_event(resp)
     assert evt.status == AuthStatus.CONNECTED
@@ -320,6 +336,7 @@ def test_auth_response_to_event_success_maps_to_connected():
 
 def test_auth_response_to_event_failure_maps_to_failed():
     from imauth._converters import auth_response_to_event
+
     resp = types.SimpleNamespace(success=False, message="nope", cookies=[])
     evt = auth_response_to_event(resp)
     assert evt.status == AuthStatus.FAILED
