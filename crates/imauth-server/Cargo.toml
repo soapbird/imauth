@@ -24,3 +24,6 @@ tokio-stream = "0.1"
 subtle = { workspace = true }
 dotenvy = { workspace = true }
 tonic-health = { workspace = true }
+
+[dev-dependencies]
+sqlx = { workspace = true }
