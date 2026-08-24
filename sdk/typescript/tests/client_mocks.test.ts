@@ -85,14 +85,31 @@ describe("ImauthClient (mocked stubs)", () => {
     sessionFake.GetCookies = makeUnaryStub(() => ({
       resp: {
         cookies: [
-          { name: "sessionid", value: "abc", domain: ".instagram.com" },
-          { name: "csrftoken", value: "xyz", domain: ".instagram.com" },
+          {
+            name: "sessionid",
+            value: "abc",
+            domain: ".instagram.com",
+            path: "/",
+            expires: 1_900_000_000,
+            httpOnly: true,
+            secure: true,
+          },
+          {
+            name: "csrftoken",
+            value: "xyz",
+            domain: ".instagram.com",
+            path: "/",
+            expires: 0,
+            httpOnly: false,
+            secure: true,
+          },
         ],
       },
     }));
 
     const cookies = await client.getCookies(Platform.INSTAGRAM);
-    expect(cookies.map((c: any) => c.name)).toEqual(["sessionid", "csrftoken"]);
+    expect(cookies.map((cookie) => cookie.name)).toEqual(["sessionid", "csrftoken"]);
+    expect(cookies[0]).toMatchObject({ httpOnly: true, expires: 1_900_000_000 });
     expect(sessionFake.GetCookies.mock.calls[0][0]).toEqual({
       platform: Platform.INSTAGRAM,
       domains: [],
@@ -111,6 +128,46 @@ describe("ImauthClient (mocked stubs)", () => {
     const { sessionFake } = installFakeClients(client);
     sessionFake.GetCookies = makeUnaryStub(() => ({ err: new Error("net") }));
     await expect(client.getCookies(Platform.INSTAGRAM)).rejects.toThrow("net");
+  });
+
+  it("updateCookies sends camel-case fields used by proto-loader", async () => {
+    const { sessionFake } = installFakeClients(client);
+    sessionFake.UpdateCookies = makeUnaryStub(() => ({ resp: { cookies: [] } }));
+
+    await client.updateCookies(Platform.INSTAGRAM, [
+      {
+        name: "sessionid",
+        value: "abc",
+        domain: ".instagram.com",
+        path: "/",
+        expires: 1_900_000_000,
+        httpOnly: true,
+        secure: true,
+      },
+    ]);
+
+    expect(sessionFake.UpdateCookies.mock.calls[0][0].cookies[0]).toMatchObject({
+      httpOnly: true,
+      expires: 1_900_000_000,
+    });
+  });
+
+  it("validateSessionDetails preserves expiry and cookie name", async () => {
+    const { sessionFake } = installFakeClients(client);
+    sessionFake.ValidateSession = makeUnaryStub(() => ({
+      resp: {
+        valid: true,
+        expiresAt: 1_900_000_000,
+        sessionCookieName: "sessionid",
+      },
+    }));
+
+    await expect(client.validateSessionDetails(Platform.INSTAGRAM)).resolves.toEqual({
+      valid: true,
+      expiresAt: 1_900_000_000,
+      sessionCookieName: "sessionid",
+    });
+    await expect(client.validateSession(Platform.INSTAGRAM)).resolves.toBe(true);
   });
 
   // ---- exportNetscape --------------------------------------------------
@@ -174,18 +231,16 @@ describe("ImauthClient (mocked stubs)", () => {
       platform: Platform.INSTAGRAM,
       username: "alice",
       password: "pw",
-      // Snake-case on the wire because proto-loader is configured with
-      // keepCase: true; the client converts the camelCase argument.
-      twofa_method: "totp",
+      twofaMethod: "totp",
     });
   });
 
-  it("saveCredentials defaults twofa_method to empty string", async () => {
+  it("saveCredentials defaults twofaMethod to empty string", async () => {
     const { credentialFake } = installFakeClients(client);
     credentialFake.Save = makeUnaryStub(() => ({ resp: {} }));
 
     await client.saveCredentials(Platform.THREADS, "bob", "pw");
-    expect(credentialFake.Save.mock.calls[0][0].twofa_method).toBe("");
+    expect(credentialFake.Save.mock.calls[0][0].twofaMethod).toBe("");
   });
 
   it("saveCredentials rejects on gRPC error", async () => {

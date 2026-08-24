@@ -1,9 +1,9 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
 import * as path from "node:path";
-import type { Cookie, CredentialInfo, Platform } from "./types";
+import type { AuthEvent, Cookie, CredentialInfo, Platform, SessionValidation } from "./types";
 
-const PROTO_ROOT = path.join(__dirname, "../../../proto");
+const PROTO_ROOT = path.join(__dirname, "../proto");
 
 const packageDefinition = protoLoader.loadSync(
   [
@@ -13,9 +13,8 @@ const packageDefinition = protoLoader.loadSync(
     path.join(PROTO_ROOT, "imauth/v1/credential.proto"),
   ],
   {
-    keepCase: true,
-    longs: String,
-    enums: String,
+    keepCase: false,
+    longs: Number,
     defaults: true,
     oneofs: true,
     includeDirs: [PROTO_ROOT],
@@ -80,11 +79,11 @@ export class ImauthClient {
 
   // --- auth ---------------------------------------------------------------
 
-  login(platform: Platform): grpc.ClientReadableStream<any> {
+  login(platform: Platform): grpc.ClientReadableStream<AuthEvent> {
     return this.authClient.Login({ platform }, this.buildMetadata());
   }
 
-  getStatus(sessionId: string): Promise<any> {
+  getStatus(sessionId: string): Promise<AuthEvent | null> {
     return new Promise((resolve, reject) => {
       this.authClient.GetStatus(
         { session_id: sessionId },
@@ -93,7 +92,18 @@ export class ImauthClient {
           if (err) {
             if (err.code === grpc.status.NOT_FOUND) resolve(null);
             else reject(err);
-          } else resolve(response);
+          } else {
+            resolve({
+              status: response.status,
+              sessionId: response.sessionId,
+              message: response.message,
+              requiresInput: response.requiresInput,
+              inputType: response.inputType,
+              cookies: [],
+              screenshot: Buffer.alloc(0),
+              viewerUrl: "",
+            });
+          }
         },
       );
     });
@@ -124,24 +134,11 @@ export class ImauthClient {
   }
 
   updateCookies(platform: Platform, cookies: Cookie[]): Promise<void> {
-    const wireCookies = cookies.map((c) => ({
-      name: c.name,
-      value: c.value,
-      domain: c.domain,
-      path: c.path,
-      expires: c.expires,
-      http_only: c.httpOnly,
-      secure: c.secure,
-    }));
     return new Promise((resolve, reject) => {
-      this.sessionClient.UpdateCookies(
-        { platform, cookies: wireCookies },
-        this.buildMetadata(),
-        (err: any) => {
-          if (err) reject(err);
-          else resolve();
-        },
-      );
+      this.sessionClient.UpdateCookies({ platform, cookies }, this.buildMetadata(), (err: any) => {
+        if (err) reject(err);
+        else resolve();
+      });
     });
   }
 
@@ -159,13 +156,23 @@ export class ImauthClient {
   }
 
   validateSession(platform: Platform): Promise<boolean> {
+    return this.validateSessionDetails(platform).then((result) => result.valid);
+  }
+
+  validateSessionDetails(platform: Platform): Promise<SessionValidation> {
     return new Promise((resolve, reject) => {
       this.sessionClient.ValidateSession(
         { platform },
         this.buildMetadata(),
         (err: any, response: any) => {
           if (err) reject(err);
-          else resolve(Boolean(response.valid));
+          else {
+            resolve({
+              valid: Boolean(response.valid),
+              expiresAt: Number(response.expiresAt),
+              sessionCookieName: response.sessionCookieName,
+            });
+          }
         },
       );
     });
@@ -198,7 +205,7 @@ export class ImauthClient {
           platform,
           username,
           password,
-          twofa_method: twofaMethod || "",
+          twofaMethod: twofaMethod || "",
         },
         this.buildMetadata(),
         (err: any, response: any) => {
@@ -219,8 +226,8 @@ export class ImauthClient {
           resolve({
             platform: response.platform,
             username: response.username,
-            hasPassword: response.has_password,
-            twofaMethod: response.twofa_method || "",
+            hasPassword: response.hasPassword,
+            twofaMethod: response.twofaMethod || "",
           });
         }
       });

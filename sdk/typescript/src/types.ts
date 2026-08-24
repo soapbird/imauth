@@ -36,6 +36,12 @@ export interface AuthEvent {
   viewerUrl: string;
 }
 
+export interface SessionValidation {
+  valid: boolean;
+  expiresAt: number;
+  sessionCookieName: string;
+}
+
 export interface CredentialInfo {
   platform: Platform;
   username: string;

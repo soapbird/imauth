@@ -43,6 +43,7 @@ sdk/python/uv.lock
 sdk/typescript/node_modules/
 sdk/typescript/dist/
 sdk/typescript/coverage/
+sdk/typescript/proto/
 sdk/typescript/*.log
 
 # Secrets
