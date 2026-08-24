@@ -51,7 +51,7 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install -e . anyio basedpyright==1.39.0 grpcio-tools==1.83.0 pytest ruff==0.16.4
+          .venv/bin/pip install -e . anyio basedpyright==1.39.0 grpcio-tools==1.76.0 pytest ruff==0.16.4
           make quality PYTHON=.venv/bin/python
           make test PYTHON=.venv/bin/python
       - name: verify wheel protobuf runtime compatibility
@@ -62,7 +62,39 @@ jobs:
           python -m venv "$wheel_dir/.venv"
           "$wheel_dir/.venv/bin/pip" install --upgrade pip
           "$wheel_dir/.venv/bin/pip" install "$wheel_dir"/imauth-*.whl
-          "$wheel_dir/.venv/bin/python" -c 'from imauth.v1 import auth_pb2; print(auth_pb2.__name__)'
+          "$wheel_dir/.venv/bin/python" - <<'PY'
+          from concurrent.futures import ThreadPoolExecutor
+
+          import grpc
+          from imauth import ImauthClient
+          from imauth.v1 import session_pb2, session_pb2_grpc
+
+
+          class ConnectionStatusService(session_pb2_grpc.SessionServiceServicer):
+              def GetConnectionStatus(self, request, context):
+                  return session_pb2.ConnectionStatusMap(
+                      platforms={"instagram": True, "naver": False}
+                  )
+
+
+          server = grpc.server(ThreadPoolExecutor(max_workers=1))
+          session_pb2_grpc.add_SessionServiceServicer_to_server(
+              ConnectionStatusService(), server
+          )
+          port = server.add_insecure_port("127.0.0.1:0")
+          assert port
+          server.start()
+          client = ImauthClient(f"127.0.0.1:{port}")
+          try:
+              grpc.channel_ready_future(client._channel).result(timeout=5)
+              assert client.get_connection_status() == {
+                  "instagram": True,
+                  "naver": False,
+              }
+          finally:
+              client.close()
+              server.stop(0).wait()
+          PY
 
   ts-sdk:
     runs-on: ubuntu-latest
