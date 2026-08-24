@@ -19,6 +19,7 @@
     "build": "tsc",
     "pretest": "npm run prepare:proto",
     "test": "jest",
+    "prepack": "npm run build",
     "prepublishOnly": "npm run test && npm run build",
     "lint": "biome lint src tests jest.config.js",
     "format": "biome format --write src tests jest.config.js package.json tsconfig.json biome.json",
