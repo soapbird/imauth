@@ -157,12 +157,12 @@ impl CookieRepository for SqliteCookieRepository {
         let flag = |b: bool| if b { "TRUE" } else { "FALSE" };
         for cookie in cookies {
             let expires = cookie.expires.map(|dt| dt.timestamp()).unwrap_or(0);
-            let host_only_flag = flag(!cookie.domain.starts_with('.'));
+            let include_subdomains_flag = flag(cookie.domain.starts_with('.'));
             let secure_flag = flag(cookie.secure);
             lines.push(format!(
                 "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 cookie.domain,
-                host_only_flag,
+                include_subdomains_flag,
                 cookie.path,
                 secure_flag,
                 expires,
@@ -286,6 +286,20 @@ mod tests {
 
         // Then
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn export_netscape_marks_dotted_domains_for_subdomain_matching() {
+        let pool = test_pool().await;
+        let repo = SqliteCookieRepository::new(pool, encryption());
+        repo.save("example", &[cookie("secret")]).await.unwrap();
+
+        let exported = repo.export_netscape("example").await.unwrap();
+
+        assert!(exported.lines().any(|line| {
+            line.starts_with(".example.com\tTRUE\t/\tTRUE\t")
+                && line.ends_with("\tsessionid\tsecret")
+        }));
     }
 
     async fn insert_cookie_value(pool: &SqlitePool, value: &str) {

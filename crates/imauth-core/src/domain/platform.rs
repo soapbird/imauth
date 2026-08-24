@@ -1,4 +1,5 @@
 use crate::domain::session::Cookie;
+use chrono::Utc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Platform {
@@ -66,18 +67,24 @@ impl Platform {
             .collect()
     }
 
-    pub fn has_session_cookie(&self, cookies: &[Cookie]) -> bool {
+    pub fn session_cookie<'a>(&self, cookies: &'a [Cookie]) -> Option<&'a Cookie> {
         let name = self.session_cookie_name();
-        cookies
-            .iter()
-            .any(|c| c.name == name && self.cookie_matches_domain(c))
+        cookies.iter().find(|c| {
+            c.name == name
+                && self.cookie_matches_domain(c)
+                && c.expires.is_none_or(|expires| expires > Utc::now())
+        })
+    }
+
+    pub fn has_session_cookie(&self, cookies: &[Cookie]) -> bool {
+        self.session_cookie(cookies).is_some()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
 
     fn cookie(name: &str, domain: &str) -> Cookie {
         Cookie {
@@ -85,7 +92,7 @@ mod tests {
             value: "v".into(),
             domain: domain.into(),
             path: "/".into(),
-            expires: Some(Utc::now()),
+            expires: Some(Utc::now() + Duration::hours(1)),
             http_only: false,
             secure: true,
         }
@@ -210,5 +217,21 @@ mod tests {
     fn has_session_cookie_false_for_other_cookie_name() {
         let cookies = vec![cookie("csrftoken", ".instagram.com")];
         assert!(!Platform::Instagram.has_session_cookie(&cookies));
+    }
+
+    #[test]
+    fn has_session_cookie_false_when_expired() {
+        let mut session_cookie = cookie("sessionid", ".instagram.com");
+        session_cookie.expires = Some(Utc::now() - Duration::seconds(1));
+
+        assert!(!Platform::Instagram.has_session_cookie(&[session_cookie]));
+    }
+
+    #[test]
+    fn has_session_cookie_accepts_session_cookie_without_expiry() {
+        let mut session_cookie = cookie("sessionid", ".instagram.com");
+        session_cookie.expires = None;
+
+        assert!(Platform::Instagram.has_session_cookie(&[session_cookie]));
     }
 }
