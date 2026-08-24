@@ -70,8 +70,7 @@ verify_compose_contract() {
     exit 1
   fi
 
-  env -u IMAUTH_BIND_HOST \
-    IMAUTH_API_KEY=test-api-key-000000000000000000000000 \
+  IMAUTH_API_KEY=test-api-key-000000000000000000000000 \
     IMAUTH_VIEWER_TOKEN=test-viewer-token-00000000000000000000 \
     IMAUTH_ENCRYPTION_KEY=test-encryption-key \
     docker compose --env-file "$empty_env" -f "$compose_file" config >"$compose_output"
@@ -83,11 +82,13 @@ verify_compose_contract() {
   IMAUTH_API_KEY=test-api-key-000000000000000000000000 \
   IMAUTH_VIEWER_TOKEN=test-viewer-token-00000000000000000000 \
   IMAUTH_ENCRYPTION_KEY=test-encryption-key \
-  IMAUTH_BIND_HOST=127.0.0.2 \
-  IMAUTH_VIEWER_SCHEME=https \
+  IMAUTH_BIND_HOST=0.0.0.0 \
     docker compose --env-file "$empty_env" -f "$compose_file" config >"$compose_output"
-  [ "$(grep -Fc 'host_ip: 127.0.0.2' "$compose_output")" -eq 2 ]
-  grep -Fq 'IMAUTH_BROWSER_VIEWER_URLS: https://localhost:6101/index.html?token=' "$compose_output"
+  [ "$(grep -Fc 'host_ip: 127.0.0.1' "$compose_output")" -eq 2 ]
+  if grep -Fq 'host_ip: 0.0.0.0' "$compose_output"; then
+    echo "$compose_file accepted a non-loopback bind override" >&2
+    exit 1
+  fi
 }
 
 verify_compose_contract "$repo_root/docker-compose.yml"

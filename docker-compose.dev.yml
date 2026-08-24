@@ -129,7 +129,7 @@ services:
       IMAUTH_VIEWER_TOKEN: ${IMAUTH_VIEWER_TOKEN:?Set IMAUTH_VIEWER_TOKEN to a random value of at least 32 characters}
       IMAUTH_VIEWER_COOKIE_SECURE: ${IMAUTH_VIEWER_COOKIE_SECURE:-}
     ports:
-      - "${IMAUTH_BIND_HOST:-127.0.0.1}:${IMAUTH_NOVNC_PORT_0:-6101}:8080"
+      - "127.0.0.1:${IMAUTH_NOVNC_PORT_0:-6101}:8080"
 
   server:
     container_name: imauth-server
@@ -149,7 +149,7 @@ services:
       chrome-0:
         condition: service_healthy
     ports:
-      - "${IMAUTH_BIND_HOST:-127.0.0.1}:${IMAUTH_HOSTPORT:-6100}:50051"
+      - "127.0.0.1:${IMAUTH_HOSTPORT:-6100}:50051"
     command: ["serve"]
 
 networks:

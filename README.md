@@ -35,14 +35,13 @@ subsequent assets and WebSocket connections. Proxy access logs are disabled,
 and viewer responses disable caching and referrers and apply restrictive CSP,
 frame, content-type, and permissions headers.
 
-The gRPC API and viewer are both published on `127.0.0.1` by default, and
+The gRPC API and viewer are both published only on `127.0.0.1`, and
 Compose refuses to start when the API key, viewer token, or encryption key is
-missing. `IMAUTH_BIND_HOST` is the explicit bind override for both published
-ports. For remote viewer access, keep the proxy on loopback and publish it
-through an HTTPS reverse proxy, then set `IMAUTH_VIEWER_SCHEME=https` and
-`IMAUTH_VIEWER_COOKIE_SECURE=Secure`. A direct non-loopback bind remains
-plaintext and must only be used behind a trusted tunnel or equivalent network
-control. Treat the initial viewer URL as a secret until its first redirect.
+missing. Compose does not provide a non-loopback bind override because its
+published services do not terminate TLS. For remote viewer access, publish the
+loopback endpoint through Tailscale or an HTTPS reverse proxy, then set
+`IMAUTH_VIEWER_SCHEME=https` and `IMAUTH_VIEWER_COOKIE_SECURE=Secure`. Treat the
+initial viewer URL as a secret until its first redirect.
 
 ### Internal-only Ports (not exposed to host)
 
@@ -61,7 +60,6 @@ All environment variables use the `IMAUTH_` prefix.
 | `IMAUTH_VIEWER_TOKEN`          | —           | **Required.** Static noVNC viewer access token   |
 | `IMAUTH_HOSTNAME`              | `localhost` | Hostname used in Kasm browser viewer URLs        |
 | `IMAUTH_HOSTPORT`              | `6100`      | Host port mapped to gRPC (50051)                 |
-| `IMAUTH_BIND_HOST`             | `127.0.0.1` | Host address used to publish gRPC and viewer     |
 | `IMAUTH_NOVNC_PORT_0`          | `6101`      | Host port for noVNC viewer                        |
 | `IMAUTH_VIEWER_SCHEME`         | `http`      | Public viewer URL scheme (`https` behind TLS)     |
 | `IMAUTH_VIEWER_COOKIE_SECURE`  | —           | Set to `Secure` behind an HTTPS viewer endpoint  |
