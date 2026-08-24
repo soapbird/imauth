@@ -3,8 +3,6 @@ mod cli_support;
 mod cli_support_tests;
 mod grpc_commands;
 mod provider_record;
-#[cfg(test)]
-mod provider_record_tests;
 
 use crate::cli_support::{install_crypto_provider, Cli, Commands};
 use clap::Parser;

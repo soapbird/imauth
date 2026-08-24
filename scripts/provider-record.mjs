@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { chmod, link, lstat, mkdir, open, readFile, readdir, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
 
@@ -20,7 +21,8 @@ import {
 const options = parseArguments(process.argv.slice(2));
 const targetUrl = new URL(options.url);
 const providerDomain = (options.domain ?? targetUrl.hostname).toLowerCase().replace(/^\.+/, "");
-const recordRoot = path.resolve(options.outputRoot, artifactDirectoryName(providerDomain));
+const outputRoot = await prepareOutputRoot(path.resolve(options.outputRoot));
+const recordRoot = containedPath(outputRoot, artifactDirectoryName(providerDomain));
 const rawRoot = path.join(recordRoot, "raw");
 const sanitizedRoot = path.join(recordRoot, "sanitized");
 const report = createRedactionReport();
@@ -32,14 +34,16 @@ const pending = new Set();
 const requestEntries = new WeakMap();
 let scriptSequence = 0;
 
-await mkdir(sanitizedRoot, { recursive: true });
-if (options.deep) await mkdir(rawRoot, { recursive: true });
+await createPrivateDirectory(recordRoot);
+await ensurePrivateDirectory(sanitizedRoot);
+if (options.deep) await ensurePrivateDirectory(rawRoot);
 
 let browser;
 let context;
 let page;
 let ownsBrowser = false;
 let tracingStarted = false;
+let traceCompleted = false;
 
 try {
   ({ browser, context, page, ownsBrowser } = await openBrowser());
@@ -214,12 +218,12 @@ async function captureCheckpoint(name) {
   ]);
   if (options.deep) {
     const rawDirectory = path.join(rawRoot, "checkpoints", uniqueName);
-    await mkdir(rawDirectory, { recursive: true });
+    await ensurePrivateDirectory(rawDirectory);
     await Promise.all([
-      writeFile(path.join(rawDirectory, "page.html"), html),
+      writePrivateFile(path.join(rawDirectory, "page.html"), html),
       writeJson(path.join(rawDirectory, "cookies.json"), cookies),
       writeJson(path.join(rawDirectory, "storage.json"), storage),
-      page.screenshot({ path: path.join(rawDirectory, "screenshot.png"), fullPage: true }),
+      page.screenshot({ fullPage: true }).then((content) => writePrivateFile(path.join(rawDirectory, "screenshot.png"), content)),
     ]);
   }
   checkpoints.push({ name: uniqueName, url: page.url(), title: await page.title(), html, cookies, storage });
@@ -229,16 +233,19 @@ async function captureCheckpoint(name) {
 async function finish(status) {
   if (status === "completed") await captureCheckpoint("final");
   await Promise.allSettled([...pending]);
-  if (tracingStarted) await context.tracing.stop({ path: path.join(rawRoot, "trace.zip") }).catch(() => {});
+  if (tracingStarted) {
+    await writePrivateTrace(path.join(rawRoot, "trace.zip"));
+    traceCompleted = true;
+  }
 
   const har = buildHar();
   if (options.deep) {
     const scriptDirectory = path.join(rawRoot, "javascript");
-    await mkdir(scriptDirectory, { recursive: true });
+    await ensurePrivateDirectory(scriptDirectory);
     await Promise.all([
       writeJson(path.join(rawRoot, "network.har"), har),
       writeJson(path.join(rawRoot, "console.json"), consoleEvents),
-      ...scriptArtifacts.map(({ name, body }) => writeFile(path.join(scriptDirectory, name), body)),
+      ...scriptArtifacts.map(({ name, body }) => writePrivateFile(containedPath(scriptDirectory, name), body)),
     ]);
   }
   await writeSanitizedArtifacts(har, status);
@@ -249,9 +256,9 @@ async function finish(status) {
 async function writeSanitizedArtifacts(har, status) {
   for (const checkpoint of checkpoints) {
     const directory = path.join(sanitizedRoot, "checkpoints", checkpoint.name);
-    await mkdir(directory, { recursive: true });
+    await ensurePrivateDirectory(directory);
     await Promise.all([
-      writeFile(path.join(directory, "page.html"), redactHtml(checkpoint.html, report)),
+      writePrivateFile(path.join(directory, "page.html"), redactHtml(checkpoint.html, report)),
       writeJson(path.join(directory, "state.json"), {
         url: redactUrl(checkpoint.url, report),
         title: redactString(checkpoint.title, report),
@@ -273,9 +280,9 @@ async function writeSanitizedArtifacts(har, status) {
   );
   if (options.deep) {
     const scriptDirectory = path.join(sanitizedRoot, "javascript");
-    await mkdir(scriptDirectory, { recursive: true });
+    await ensurePrivateDirectory(scriptDirectory);
     for (const artifact of scriptArtifacts) {
-      await writeFile(path.join(scriptDirectory, artifact.name), redactString(artifact.body.toString("utf8"), report));
+      await writePrivateFile(containedPath(scriptDirectory, artifact.name), redactString(artifact.body.toString("utf8"), report));
     }
   }
 
@@ -296,7 +303,7 @@ async function writeSanitizedArtifacts(har, status) {
     detailLevel: options.deep ? "deep" : "standard",
     checkpoints: checkpoints.map(({ name, url }) => ({ name, url: redactUrl(url, report) })),
     rawArtifacts: options.deep
-      ? ["HTML", "screenshots", "cookies", "storage", "HAR", "console", "first-party JavaScript", ...(tracingStarted ? ["Playwright trace"] : [])]
+      ? ["HTML", "screenshots", "cookies", "storage", "HAR", "console", "first-party JavaScript", ...(traceCompleted ? ["Playwright trace"] : [])]
       : [],
     sanitizedArtifacts: ["HTML checkpoints", "cookie/storage state", "HAR", "console warnings/errors", "JavaScript inventory", ...(options.deep ? ["JavaScript bodies"] : [])],
     sanitizedOmissions: options.deep ? ["screenshots", "Playwright trace"] : ["raw values", "screenshots", "Playwright trace", "JavaScript bodies"],
@@ -305,7 +312,7 @@ async function writeSanitizedArtifacts(har, status) {
   };
   await writeJson(path.join(recordRoot, "redaction-report.json"), redactionReport);
   await writeJson(path.join(recordRoot, "manifest.json"), manifest);
-  await writeFile(path.join(recordRoot, "report.md"), buildReport(manifest, redactionReport));
+  await writePrivateFile(path.join(recordRoot, "report.md"), buildReport(manifest, redactionReport));
   if (!redactionReport.readyForGit) process.exitCode = 2;
 }
 
@@ -332,7 +339,7 @@ function buildHar() {
 }
 
 function buildReport(manifest, redactionReport) {
-  const deepNote = manifest.detailLevel === "deep" ? "Deep raw artifacts remain local-only under `raw/`." : "Use `--deep` only when the standard auth evidence is insufficient.";
+  const deepNote = manifest.detailLevel === "deep" ? "The explicit `--deep` opt-in retains raw artifacts locally under the private `raw/` directory." : "Standard mode retains no raw artifacts; use `--deep` only when the sanitized evidence is insufficient.";
   return `# Provider session record\n\n- Status: ${manifest.status}\n- Source: ${manifest.sourceUrl}\n- Domain: ${manifest.providerDomain}\n- Browser mode: ${manifest.captureMode}\n- Detail: ${manifest.detailLevel}\n- Checkpoints: ${manifest.checkpoints.length}\n- Sanitized ready for Git: ${manifest.readyForGit}\n- Redactions: ${JSON.stringify(redactionReport.redactedCounts)}\n\n${deepNote} Review \`sanitized/\`, \`manifest.json\`, and \`redaction-report.json\` before committing.\n`;
 }
 
@@ -370,17 +377,129 @@ function track(promise) {
 }
 
 async function writeJson(file, value) {
-  await writeFile(file, `${JSON.stringify(value, null, 2)}\n`);
+  await writePrivateFile(file, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 async function walkFiles(directory) {
   const files = [];
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const fullPath = path.join(directory, entry.name);
+    if (entry.isSymbolicLink()) throw new Error(`Refusing symbolic link in recorder output: ${fullPath}`);
     if (entry.isDirectory()) files.push(...await walkFiles(fullPath));
-    else files.push(fullPath);
+    else if (entry.isFile()) files.push(fullPath);
+    else throw new Error(`Refusing non-regular recorder output: ${fullPath}`);
   }
   return files.sort();
+}
+
+async function prepareOutputRoot(directory) {
+  const parsed = path.parse(directory);
+  let current = parsed.root;
+  for (const part of directory.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    try {
+      const metadata = await lstat(current);
+      if (metadata.isSymbolicLink()) {
+        throw new Error(`Refusing symbolic link in output root path: ${current}`);
+      }
+      if (!metadata.isDirectory()) {
+        throw new Error(`Recorder output root component is not a directory: ${current}`);
+      }
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      await createPrivateDirectory(current);
+    }
+  }
+  await hardenPrivateDirectory(directory);
+  return realpath(directory);
+}
+
+function containedPath(root, ...parts) {
+  const candidate = path.resolve(root, ...parts);
+  const relative = path.relative(root, candidate);
+  if (relative.startsWith(`..${path.sep}`) || relative === ".." || path.isAbsolute(relative)) {
+    throw new Error(`Recorder output path escapes its root: ${candidate}`);
+  }
+  return candidate;
+}
+
+async function createPrivateDirectory(directory) {
+  await mkdir(directory, { mode: 0o700 });
+  const metadata = await lstat(directory);
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error(`Refusing unsafe recorder directory: ${directory}`);
+  }
+  if (process.platform !== "win32") await chmod(directory, 0o700);
+  await hardenPrivateDirectory(directory);
+}
+
+async function ensurePrivateDirectory(directory) {
+  const relative = path.relative(recordRoot, containedPath(recordRoot, path.relative(recordRoot, directory)));
+  let current = recordRoot;
+  for (const part of relative.split(path.sep).filter(Boolean)) {
+    current = containedPath(recordRoot, path.relative(recordRoot, current), part);
+    try {
+      await hardenPrivateDirectory(current);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      await createPrivateDirectory(current);
+    }
+  }
+}
+
+async function hardenPrivateDirectory(directory) {
+  if (process.platform === "win32") {
+    const metadata = await lstat(directory);
+    if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+      throw new Error(`Refusing unsafe recorder directory: ${directory}`);
+    }
+    return;
+  }
+  const flags = constants.O_RDONLY | constants.O_DIRECTORY | (constants.O_NOFOLLOW ?? 0);
+  const handle = await open(directory, flags);
+  try {
+    const metadata = await handle.stat();
+    if (!metadata.isDirectory()) throw new Error(`Refusing unsafe recorder directory: ${directory}`);
+    await handle.chmod(0o700);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function writePrivateFile(file, content) {
+  containedPath(recordRoot, path.relative(recordRoot, file));
+  const parent = path.dirname(file);
+  await ensurePrivateDirectory(parent);
+  const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0);
+  const handle = await open(file, flags, 0o600);
+  try {
+    await handle.writeFile(content);
+    await handle.chmod(0o600);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function writePrivateTrace(file) {
+  containedPath(recordRoot, path.relative(recordRoot, file));
+  const temporary = containedPath(rawRoot, `.trace-${randomUUID()}.tmp`);
+  try {
+    await context.tracing.stop({ path: temporary });
+    const metadata = await lstat(temporary);
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+      throw new Error(`Refusing unsafe trace output: ${temporary}`);
+    }
+    if (process.platform !== "win32") await chmod(temporary, 0o600);
+    const handle = await open(temporary, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+      await handle.chmod(0o600);
+    } finally {
+      await handle.close();
+    }
+    await link(temporary, file);
+  } finally {
+    await rm(temporary, { force: true });
+  }
 }
 
 async function checksums(directory) {
