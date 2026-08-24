@@ -81,8 +81,9 @@ async fn test_container() -> AppContainer {
 
     let sessions: Arc<dyn imauth_core::ports::repository::SessionRepository> =
         Arc::new(SqliteSessionRepository::new(pool.clone()));
-    let cookies: Arc<dyn imauth_core::ports::repository::CookieRepository> =
-        Arc::new(SqliteCookieRepository::new(pool.clone()));
+    let cookies: Arc<dyn imauth_core::ports::repository::CookieRepository> = Arc::new(
+        SqliteCookieRepository::new(pool.clone(), encryption.clone()),
+    );
     let credentials: Arc<dyn imauth_core::ports::repository::CredentialRepository> = Arc::new(
         SqliteCredentialRepository::new(pool.clone(), encryption.clone()),
     );
@@ -238,6 +239,7 @@ async fn test_cookie_crud() {
     let cookies = resp.into_inner().cookies;
     assert_eq!(cookies.len(), 1);
     assert_eq!(cookies[0].name, "sessionid");
+    assert_eq!(cookies[0].value, "abc123");
 
     // Export netscape
     let resp = client
@@ -248,6 +250,8 @@ async fn test_cookie_crud() {
         .unwrap();
     let content = resp.into_inner().content;
     assert!(content.contains("sessionid"));
+    assert!(content.contains("abc123"));
+    assert!(!content.contains("enc:v1:"));
 }
 
 #[tokio::test]
