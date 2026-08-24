@@ -26,10 +26,10 @@ message AuthEvent {
   AuthStatus status = 2;
   string message = 3;
   bool requires_input = 4;
-  string input_type = 5;   // "viewer_url"
+  string input_type = 5; // "viewer_url"
   repeated Cookie cookies = 6;
   reserved 7;
-  string viewer_url = 8;   // Browser viewer URL for user to interact with the browser
+  string viewer_url = 8; // Browser viewer URL for user to interact with the browser
 }
 
 message AuthResponse {
