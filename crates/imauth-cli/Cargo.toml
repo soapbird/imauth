@@ -11,6 +11,7 @@ path = "src/main.rs"
 imauth-proto = { path = "../imauth-proto" }
 tokio = { workspace = true }
 tonic = { workspace = true }
+rustls = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

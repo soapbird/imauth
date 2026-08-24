@@ -6,6 +6,10 @@ pub struct ServerConfig {
     #[serde(default = "default_grpc_addr")]
     pub grpc_addr: String,
     #[serde(default)]
+    pub tls_cert_path: Option<PathBuf>,
+    #[serde(default)]
+    pub tls_key_path: Option<PathBuf>,
+    #[serde(default)]
     pub metrics_port: Option<u16>,
 }
 
@@ -114,6 +118,8 @@ impl Default for Config {
         Self {
             server: ServerConfig {
                 grpc_addr: default_grpc_addr(),
+                tls_cert_path: None,
+                tls_key_path: None,
                 metrics_port: None,
             },
             browser: BrowserConfig {
@@ -159,6 +165,12 @@ impl Config {
         if let Ok(addr) = std::env::var("IMAUTH_GRPC_ADDR") {
             self.server.grpc_addr = addr;
         }
+        if let Ok(path) = std::env::var("IMAUTH_TLS_CERT_PATH") {
+            self.server.tls_cert_path = normalize_path(path);
+        }
+        if let Ok(path) = std::env::var("IMAUTH_TLS_KEY_PATH") {
+            self.server.tls_key_path = normalize_path(path);
+        }
         if let Ok(url) = std::env::var("IMAUTH_CDP_URL") {
             self.browser.cdp_url = url;
         }
@@ -196,6 +208,21 @@ impl Config {
 
     pub fn grpc_addr(&self) -> &str {
         &self.server.grpc_addr
+    }
+
+    pub fn tls_identity_paths(
+        &self,
+    ) -> crate::Result<Option<(&std::path::Path, &std::path::Path)>> {
+        match (
+            self.server.tls_cert_path.as_deref(),
+            self.server.tls_key_path.as_deref(),
+        ) {
+            (None, None) => Ok(None),
+            (Some(cert), Some(key)) => Ok(Some((cert, key))),
+            (Some(_), None) | (None, Some(_)) => Err(crate::ImauthError::Config(
+                "TLS certificate and key paths must be configured together".to_string(),
+            )),
+        }
     }
 
     pub fn cdp_url(&self) -> &str {
@@ -276,6 +303,15 @@ impl Config {
     }
 }
 
+fn normalize_path(value: String) -> Option<PathBuf> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(trimmed))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,6 +333,8 @@ mod tests {
     fn clear_env() {
         for k in [
             "IMAUTH_GRPC_ADDR",
+            "IMAUTH_TLS_CERT_PATH",
+            "IMAUTH_TLS_KEY_PATH",
             "IMAUTH_CDP_URL",
             "IMAUTH_CDP_URLS",
             "IMAUTH_ENCRYPTION_KEY",
@@ -498,5 +536,58 @@ max_pool_size = 7
             parsed.refresh_interval_secs(),
             original.refresh_interval_secs()
         );
+    }
+
+    #[test]
+    fn tls_identity_paths_returns_none_when_tls_is_not_configured() {
+        // Given: the default plaintext configuration.
+        let cfg = Config::default();
+
+        // When: TLS identity paths are resolved.
+        let paths = cfg.tls_identity_paths().unwrap();
+
+        // Then: TLS remains disabled.
+        assert!(paths.is_none());
+    }
+
+    #[test]
+    fn tls_identity_paths_returns_pair_when_both_paths_are_configured() {
+        // Given: matching server certificate and key paths.
+        let mut cfg = Config::default();
+        cfg.server.tls_cert_path = Some(PathBuf::from("server.pem"));
+        cfg.server.tls_key_path = Some(PathBuf::from("server.key"));
+
+        // When: TLS identity paths are resolved.
+        let paths = cfg.tls_identity_paths().unwrap().unwrap();
+
+        // Then: the exact configured pair is returned.
+        assert_eq!(paths.0, std::path::Path::new("server.pem"));
+        assert_eq!(paths.1, std::path::Path::new("server.key"));
+    }
+
+    #[test]
+    fn tls_identity_paths_rejects_an_unpaired_certificate() {
+        // Given: only a server certificate path.
+        let mut cfg = Config::default();
+        cfg.server.tls_cert_path = Some(PathBuf::from("server.pem"));
+
+        // When: TLS identity paths are resolved.
+        let error = cfg.tls_identity_paths().unwrap_err();
+
+        // Then: configuration fails before the server starts.
+        assert!(error.to_string().contains("TLS certificate and key"));
+    }
+
+    #[test]
+    fn tls_identity_paths_rejects_an_unpaired_key() {
+        // Given: only a server private-key path.
+        let mut cfg = Config::default();
+        cfg.server.tls_key_path = Some(PathBuf::from("server.key"));
+
+        // When: TLS identity paths are resolved.
+        let error = cfg.tls_identity_paths().unwrap_err();
+
+        // Then: configuration fails before the server starts.
+        assert!(error.to_string().contains("TLS certificate and key"));
     }
 }

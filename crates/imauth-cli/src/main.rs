@@ -6,7 +6,20 @@ use imauth_proto::generated::v1::{
     StatusRequest,
 };
 use std::io::{self, Write};
-use tonic::transport::Channel;
+use std::path::{Path, PathBuf};
+use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};
+
+fn install_crypto_provider() -> Result<(), &'static str> {
+    if rustls::crypto::CryptoProvider::get_default().is_some() {
+        return Ok(());
+    }
+
+    match rustls::crypto::aws_lc_rs::default_provider().install_default() {
+        Ok(()) => Ok(()),
+        Err(_) if rustls::crypto::CryptoProvider::get_default().is_some() => Ok(()),
+        Err(_) => Err("failed to install rustls crypto provider"),
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "imauth")]
@@ -17,6 +30,12 @@ struct Cli {
 
     #[arg(short = 'k', long, env = "IMAUTH_API_KEY")]
     api_key: Option<String>,
+
+    #[arg(long, env = "IMAUTH_TLS_CA")]
+    tls_ca: Option<PathBuf>,
+
+    #[arg(long, env = "IMAUTH_TLS_DOMAIN")]
+    tls_domain: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -86,26 +105,60 @@ fn platform_to_proto(platform: &str) -> Result<i32, String> {
     }
 }
 
-fn with_api_key<T>(req: tonic::Request<T>, key: &Option<String>) -> tonic::Request<T> {
+fn with_api_key<T>(
+    req: tonic::Request<T>,
+    key: &Option<String>,
+) -> Result<tonic::Request<T>, tonic::metadata::errors::InvalidMetadataValue> {
     let mut req = req;
     if let Some(k) = key {
-        req.metadata_mut().insert(
-            "authorization",
-            format!("Bearer {}", k)
-                .parse()
-                .expect("valid ascii api key"),
-        );
+        req.metadata_mut()
+            .insert("authorization", format!("Bearer {k}").parse()?);
     }
-    req
+    Ok(req)
+}
+
+async fn connect_channel(
+    server: &str,
+    tls_ca: Option<&Path>,
+    tls_domain: Option<&str>,
+) -> Result<Channel, Box<dyn std::error::Error>> {
+    let mut endpoint = Endpoint::from_shared(server.to_string())?;
+    if server.starts_with("https://") || tls_ca.is_some() || tls_domain.is_some() {
+        if !server.starts_with("https://") {
+            return Err("TLS options require an https:// server URL".into());
+        }
+
+        let mut tls = ClientTlsConfig::new().with_enabled_roots();
+        if let Some(path) = tls_ca {
+            let pem = std::fs::read(path).map_err(|error| {
+                std::io::Error::new(
+                    error.kind(),
+                    format!("Failed to read TLS CA {}: {error}", path.display()),
+                )
+            })?;
+            tls = tls.ca_certificate(Certificate::from_pem(pem));
+        }
+        if let Some(domain) = tls_domain {
+            tls = tls.domain_name(domain);
+        }
+        endpoint = endpoint.tls_config(tls)?;
+    }
+    Ok(endpoint.connect().await?)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    install_crypto_provider()?;
     dotenvy::dotenv().ok();
     tracing_subscriber::fmt::init();
     let cli = Cli::parse();
 
-    let channel = Channel::from_shared(cli.server.clone())?.connect().await?;
+    let channel = connect_channel(
+        &cli.server,
+        cli.tls_ca.as_deref(),
+        cli.tls_domain.as_deref(),
+    )
+    .await?;
 
     match cli.command {
         Commands::Login { platform } => {
@@ -116,7 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     platform: platform_to_proto(&platform)?,
                 }),
                 &cli.api_key,
-            );
+            )?;
 
             let mut stream = client.login(request).await?.into_inner();
 
@@ -152,7 +205,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .get_status(with_api_key(
                     tonic::Request::new(StatusRequest { session_id }),
                     &cli.api_key,
-                ))
+                )?)
                 .await?;
             println!("{:#?}", resp.into_inner());
         }
@@ -167,7 +220,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             platform: platform_to_proto(&platform)?,
                         }),
                         &cli.api_key,
-                    ))
+                    )?)
                     .await?;
                 println!("{}", resp.into_inner().content);
             } else {
@@ -178,7 +231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             domains: vec![],
                         }),
                         &cli.api_key,
-                    ))
+                    )?)
                     .await?;
                 let cookies = resp.into_inner().cookies;
                 for c in cookies {
@@ -208,7 +261,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 twofa_method: twofa_method.unwrap_or_default(),
                             }),
                             &cli.api_key,
-                        ))
+                        )?)
                         .await?;
                     println!("{:#?}", resp.into_inner());
                 }
@@ -219,7 +272,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 platform: platform_to_proto(&platform)?,
                             }),
                             &cli.api_key,
-                        ))
+                        )?)
                         .await?;
                     println!("{:#?}", resp.into_inner());
                 }
@@ -230,7 +283,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 platform: platform_to_proto(&platform)?,
                             }),
                             &cli.api_key,
-                        ))
+                        )?)
                         .await?;
                     println!("{:#?}", resp.into_inner());
                 }
@@ -247,7 +300,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{platform_to_proto, with_api_key};
+    use super::{install_crypto_provider, platform_to_proto, with_api_key, Cli};
+    use clap::Parser;
+    use std::path::PathBuf;
+
+    #[test]
+    fn install_crypto_provider_sets_process_default() {
+        // Given: the CLI binary is built with transitive rustls providers.
+        // When: CLI startup selects its provider.
+        install_crypto_provider().unwrap();
+
+        // Then: TLS construction has an unambiguous process default.
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
+
+    #[test]
+    fn cli_tls_options_are_absent_by_default() {
+        // Given: a normal plaintext CLI invocation.
+        let cli = Cli::try_parse_from(["imauth", "status", "--session-id", "session-1"]).unwrap();
+
+        // When: TLS arguments are inspected.
+        // Then: plaintext behavior remains the default.
+        assert_eq!(cli.tls_ca, None);
+        assert_eq!(cli.tls_domain, None);
+    }
+
+    #[test]
+    fn cli_accepts_tls_ca_and_domain_options() {
+        // Given: a CLI invocation opting into a private CA and domain override.
+        let cli = Cli::try_parse_from([
+            "imauth",
+            "--server",
+            "https://127.0.0.1:7443",
+            "--tls-ca",
+            "test-ca.pem",
+            "--tls-domain",
+            "imauth.internal",
+            "status",
+            "--session-id",
+            "session-1",
+        ])
+        .unwrap();
+
+        // When: TLS arguments are inspected.
+        // Then: both options retain their exact values.
+        assert_eq!(cli.tls_ca, Some(PathBuf::from("test-ca.pem")));
+        assert_eq!(cli.tls_domain.as_deref(), Some("imauth.internal"));
+    }
 
     #[test]
     fn platform_to_proto_accepts_known_platforms_case_insensitive() {
@@ -268,14 +367,14 @@ mod tests {
     #[test]
     fn with_api_key_does_not_set_authorization_when_key_is_none() {
         let req: tonic::Request<()> = tonic::Request::new(());
-        let req = with_api_key(req, &None);
+        let req = with_api_key(req, &None).unwrap();
         assert!(req.metadata().get("authorization").is_none());
     }
 
     #[test]
     fn with_api_key_sets_bearer_authorization_when_key_present() {
         let req: tonic::Request<()> = tonic::Request::new(());
-        let req = with_api_key(req, &Some("secret-key".to_string()));
+        let req = with_api_key(req, &Some("secret-key".to_string())).unwrap();
         let val = req
             .metadata()
             .get("authorization")

@@ -4,7 +4,8 @@ resolver = "2"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["full"] }
-tonic = "0.12"
+tonic = { version = "0.12", features = ["tls-native-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "std"] }
 prost = "0.13"
 prost-types = "0.13"
 tonic-build = "0.12"
