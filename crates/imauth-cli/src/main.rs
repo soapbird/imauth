@@ -1,11 +1,11 @@
 use clap::{Parser, Subcommand};
 use imauth_proto::generated::v1::{
     auth_service_client::AuthServiceClient, credential_service_client::CredentialServiceClient,
-    session_service_client::SessionServiceClient, AuthStatus, DeleteCredentialRequest,
-    ExportRequest, GetCookiesRequest, GetCredentialRequest, LoginRequest, SaveCredentialRequest,
-    StatusRequest,
+    session_service_client::SessionServiceClient, AuthStatus, CancelRequest,
+    DeleteCredentialRequest, Empty, ExportRequest, GetCookiesRequest, GetCredentialRequest,
+    LoginRequest, Platform as ProtoPlatform, SaveCredentialRequest, StatusRequest, ValidateRequest,
 };
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use tonic::transport::{Certificate, Channel, ClientTlsConfig, Endpoint};
 
@@ -24,6 +24,7 @@ fn install_crypto_provider() -> Result<(), &'static str> {
 #[derive(Parser)]
 #[command(name = "imauth")]
 #[command(about = "imauth CLI — social auth manager")]
+#[command(version)]
 struct Cli {
     #[arg(short, long, default_value = "http://localhost:6100")]
     server: String,
@@ -53,6 +54,18 @@ enum Commands {
         #[arg(short, long)]
         session_id: String,
     },
+    #[command(about = "Cancel an active login session")]
+    Cancel {
+        #[arg(short, long)]
+        session_id: String,
+    },
+    #[command(about = "Validate the stored session cookie for a platform")]
+    Validate {
+        #[arg(short, long)]
+        platform: String,
+    },
+    #[command(about = "Show connection status for every platform")]
+    Connections,
     /// Manage cookies
     Cookies {
         #[arg(short, long)]
@@ -74,8 +87,20 @@ enum CredentialAction {
         platform: String,
         #[arg(short, long)]
         username: String,
-        #[arg(short = 'w', long)]
-        password: String,
+        #[arg(
+            short = 'w',
+            long,
+            env = "IMAUTH_PASSWORD",
+            hide_env_values = true,
+            help = "Password value; prefer IMAUTH_PASSWORD or --password-stdin"
+        )]
+        password: Option<String>,
+        #[arg(
+            long,
+            conflicts_with = "password",
+            help = "Read the password from stdin"
+        )]
+        password_stdin: bool,
         #[arg(long)]
         twofa_method: Option<String>,
     },
@@ -91,13 +116,33 @@ enum CredentialAction {
 
 fn platform_to_proto(platform: &str) -> Result<i32, String> {
     match platform.to_lowercase().as_str() {
-        "instagram" => Ok(1),
-        "threads" => Ok(2),
-        "naver" => Ok(3),
+        "instagram" => Ok(ProtoPlatform::Instagram as i32),
+        "threads" => Ok(ProtoPlatform::Threads as i32),
+        "naver" => Ok(ProtoPlatform::Naver as i32),
         other => Err(format!(
             "Unknown platform '{other}'. Expected one of: instagram, threads, naver"
         )),
     }
+}
+
+fn resolve_password(
+    password: Option<String>,
+    password_stdin: bool,
+) -> Result<String, Box<dyn std::error::Error>> {
+    if password_stdin {
+        let mut value = String::new();
+        io::stdin().read_to_string(&mut value)?;
+        let trimmed_len = value.trim_end_matches(['\r', '\n']).len();
+        value.truncate(trimmed_len);
+        if value.is_empty() {
+            return Err("Password from stdin must not be empty".into());
+        }
+        return Ok(value);
+    }
+
+    password.ok_or_else(|| {
+        "Provide a password with IMAUTH_PASSWORD, --password-stdin, or --password".into()
+    })
 }
 
 fn with_api_key<T>(
@@ -169,7 +214,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut stream = client.login(request).await?.into_inner();
 
             while let Some(event) = stream.message().await? {
-                println!("Status: {:?}", event.status);
+                let status = AuthStatus::try_from(event.status).unwrap_or(AuthStatus::Unspecified);
+                println!("Status: {}", status.as_str_name());
                 println!("Message: {}", event.message);
 
                 if !event.viewer_url.is_empty() {
@@ -181,12 +227,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     io::stdout().flush()?;
                 }
 
-                match AuthStatus::try_from(event.status) {
-                    Ok(AuthStatus::Connected) => {
+                match status {
+                    AuthStatus::Connected => {
                         println!("Login successful! Cookies: {}", event.cookies.len());
                         break;
                     }
-                    Ok(AuthStatus::Failed) => {
+                    AuthStatus::Failed => {
                         println!("Login failed: {}", event.message);
                         break;
                     }
@@ -203,6 +249,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )?)
                 .await?;
             println!("{:#?}", resp.into_inner());
+        }
+        Commands::Cancel { session_id } => {
+            let mut client = AuthServiceClient::new(channel.clone());
+            let response = client
+                .cancel(with_api_key(
+                    tonic::Request::new(CancelRequest { session_id }),
+                    &cli.api_key,
+                )?)
+                .await?
+                .into_inner();
+            println!("{}", response.message);
+        }
+        Commands::Validate { platform } => {
+            let mut client = SessionServiceClient::new(channel.clone());
+            let response = client
+                .validate_session(with_api_key(
+                    tonic::Request::new(ValidateRequest {
+                        platform: platform_to_proto(&platform)?,
+                    }),
+                    &cli.api_key,
+                )?)
+                .await?
+                .into_inner();
+            println!("Valid: {}", response.valid);
+            println!("Session cookie: {}", response.session_cookie_name);
+            println!("Expires at: {}", response.expires_at);
+        }
+        Commands::Connections => {
+            let mut client = SessionServiceClient::new(channel.clone());
+            let response = client
+                .get_connection_status(with_api_key(tonic::Request::new(Empty {}), &cli.api_key)?)
+                .await?
+                .into_inner();
+            let mut platforms: Vec<_> = response.platforms.into_iter().collect();
+            platforms.sort_by(|left, right| left.0.cmp(&right.0));
+            for (platform, connected) in platforms {
+                println!("{platform}: {connected}");
+            }
         }
 
         Commands::Cookies { platform, format } => {
@@ -245,8 +329,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     platform,
                     username,
                     password,
+                    password_stdin,
                     twofa_method,
                 } => {
+                    let password = resolve_password(password, password_stdin)?;
                     let resp = client
                         .save(with_api_key(
                             tonic::Request::new(SaveCredentialRequest {
@@ -291,7 +377,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{install_crypto_provider, platform_to_proto, with_api_key, Cli};
+    use super::{
+        install_crypto_provider, platform_to_proto, resolve_password, with_api_key, Cli, Commands,
+        CredentialAction,
+    };
     use clap::Parser;
     use std::path::PathBuf;
 
@@ -337,6 +426,51 @@ mod tests {
         // Then: both options retain their exact values.
         assert_eq!(cli.tls_ca, Some(PathBuf::from("test-ca.pem")));
         assert_eq!(cli.tls_domain.as_deref(), Some("imauth.internal"));
+    }
+
+    #[test]
+    fn cli_exposes_cancel_validate_and_connections_commands() {
+        let cancel =
+            Cli::try_parse_from(["imauth", "cancel", "--session-id", "session-1"]).unwrap();
+        assert!(matches!(cancel.command, Commands::Cancel { .. }));
+
+        let validate =
+            Cli::try_parse_from(["imauth", "validate", "--platform", "instagram"]).unwrap();
+        assert!(matches!(validate.command, Commands::Validate { .. }));
+
+        let connections = Cli::try_parse_from(["imauth", "connections"]).unwrap();
+        assert!(matches!(connections.command, Commands::Connections));
+    }
+
+    #[test]
+    fn credential_save_accepts_password_from_environment_shape() {
+        let cli = Cli::try_parse_from([
+            "imauth",
+            "credentials",
+            "save",
+            "--platform",
+            "instagram",
+            "--username",
+            "user",
+            "--password",
+            "secret",
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cli.command,
+            Commands::Credentials {
+                action: CredentialAction::Save {
+                    password: Some(password),
+                    password_stdin: false,
+                    ..
+                }
+            } if password == "secret"
+        ));
+        assert_eq!(
+            resolve_password(Some("secret".into()), false).unwrap(),
+            "secret"
+        );
     }
 
     #[test]
