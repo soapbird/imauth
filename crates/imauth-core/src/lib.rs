@@ -19,9 +19,6 @@ pub mod domain;
 pub mod error;
 pub mod ports;
 
-#[cfg(test)]
-mod proto_lint_tests;
-
 pub use application::AppContainer;
 pub use config::Config;
 pub use error::{ImauthError, Result};

@@ -20,7 +20,6 @@ chrono = { workspace = true }
 dirs = { workspace = true }
 rand = { workspace = true }
 async-trait = { workspace = true }
-metrics = { workspace = true }
 url = "2"
 
 [dev-dependencies]

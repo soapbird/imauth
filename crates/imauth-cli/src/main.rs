@@ -65,11 +65,6 @@ enum Commands {
         #[command(subcommand)]
         action: CredentialAction,
     },
-    /// Refresh session
-    Refresh {
-        #[arg(short, long)]
-        platform: String,
-    },
 }
 
 #[derive(Subcommand)]
@@ -288,10 +283,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("{:#?}", resp.into_inner());
                 }
             }
-        }
-
-        Commands::Refresh { platform } => {
-            println!("Refresh not yet implemented for {}", platform);
         }
     }
 

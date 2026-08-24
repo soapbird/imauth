@@ -9,8 +9,6 @@ pub struct ServerConfig {
     pub tls_cert_path: Option<PathBuf>,
     #[serde(default)]
     pub tls_key_path: Option<PathBuf>,
-    #[serde(default)]
-    pub metrics_port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -36,21 +34,11 @@ pub struct BrowserConfig {
 pub struct StorageConfig {
     #[serde(default = "default_data_dir")]
     pub data_dir: PathBuf,
-    #[serde(default)]
-    pub database_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SecurityConfig {
     pub encryption_key: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RefreshConfig {
-    #[serde(default = "default_interval_secs")]
-    pub interval_secs: u64,
-    #[serde(default = "default_retry_max")]
-    pub retry_max: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,8 +51,6 @@ pub struct Config {
     pub storage: StorageConfig,
     #[serde(default)]
     pub security: SecurityConfig,
-    #[serde(default)]
-    pub refresh: RefreshConfig,
 }
 
 fn default_grpc_addr() -> String {
@@ -105,14 +91,6 @@ fn expand_tilde(path: PathBuf) -> PathBuf {
     }
 }
 
-fn default_interval_secs() -> u64 {
-    3600
-}
-
-fn default_retry_max() -> u32 {
-    3
-}
-
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -120,7 +98,6 @@ impl Default for Config {
                 grpc_addr: default_grpc_addr(),
                 tls_cert_path: None,
                 tls_key_path: None,
-                metrics_port: None,
             },
             browser: BrowserConfig {
                 cdp_url: default_cdp_url(),
@@ -132,14 +109,9 @@ impl Default for Config {
             },
             storage: StorageConfig {
                 data_dir: default_data_dir(),
-                database_url: None,
             },
             security: SecurityConfig {
                 encryption_key: None,
-            },
-            refresh: RefreshConfig {
-                interval_secs: default_interval_secs(),
-                retry_max: default_retry_max(),
             },
         }
     }
@@ -190,9 +162,6 @@ impl Config {
             if let Ok(s) = secs.parse() {
                 self.browser.login_timeout_secs = s;
             }
-        }
-        if let Ok(url) = std::env::var("IMAUTH_DATABASE_URL") {
-            self.storage.database_url = Some(url);
         }
         if self.security.encryption_key.as_deref() == Some("") {
             self.security.encryption_key = None;
@@ -269,37 +238,8 @@ impl Config {
         self.storage.data_dir.join("imauth.db")
     }
 
-    pub fn cookies_dir(&self) -> PathBuf {
-        self.storage.data_dir.join("cookies")
-    }
-
-    pub fn snapshot_dir(&self) -> PathBuf {
-        self.storage.data_dir.join("snapshots")
-    }
-
     pub fn encryption_key(&self) -> Option<&str> {
         self.security.encryption_key.as_deref()
-    }
-
-    pub fn refresh_interval_secs(&self) -> u64 {
-        self.refresh.interval_secs
-    }
-
-    pub fn refresh_retry_max(&self) -> u32 {
-        self.refresh.retry_max
-    }
-
-    /// Returns the configured database URL, or a SQLite file path when unset.
-    pub fn database_url(&self) -> String {
-        if let Some(ref url) = self.storage.database_url {
-            url.clone()
-        } else {
-            format!("sqlite:{}", self.db_path().display())
-        }
-    }
-
-    pub fn metrics_port(&self) -> Option<u16> {
-        self.server.metrics_port
     }
 }
 
@@ -340,7 +280,6 @@ mod tests {
             "IMAUTH_ENCRYPTION_KEY",
             "IMAUTH_DATA_DIR",
             "IMAUTH_BROWSER_VIEWER_URLS",
-            "IMAUTH_DATABASE_URL",
         ] {
             std::env::remove_var(k);
         }
@@ -354,8 +293,6 @@ mod tests {
         assert_eq!(cfg.max_pool_size(), 3);
         assert_eq!(cfg.page_timeout_secs(), 30);
         assert!(cfg.encryption_key().is_none());
-        assert_eq!(cfg.refresh_interval_secs(), 3600);
-        assert_eq!(cfg.refresh_retry_max(), 3);
     }
 
     #[test]
@@ -363,11 +300,6 @@ mod tests {
         let mut cfg = Config::default();
         cfg.storage.data_dir = PathBuf::from("/tmp/imauth-test");
         assert_eq!(cfg.db_path(), PathBuf::from("/tmp/imauth-test/imauth.db"));
-        assert_eq!(cfg.cookies_dir(), PathBuf::from("/tmp/imauth-test/cookies"));
-        assert_eq!(
-            cfg.snapshot_dir(),
-            PathBuf::from("/tmp/imauth-test/snapshots")
-        );
     }
 
     #[test]
@@ -532,10 +464,6 @@ max_pool_size = 7
         assert_eq!(parsed.grpc_addr(), original.grpc_addr());
         assert_eq!(parsed.cdp_url(), original.cdp_url());
         assert_eq!(parsed.max_pool_size(), original.max_pool_size());
-        assert_eq!(
-            parsed.refresh_interval_secs(),
-            original.refresh_interval_secs()
-        );
     }
 
     #[test]

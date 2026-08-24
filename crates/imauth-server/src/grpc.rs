@@ -3,17 +3,6 @@
 
 use futures::Stream;
 use imauth_core::application::login::LoginEvent;
-
-macro_rules! record_grpc {
-    ($method:expr, $result:expr) => {
-        metrics::counter!(
-            "grpc_requests_total",
-            "method" => $method,
-            "status" => if $result.is_ok() { "ok" } else { "error" }
-        )
-        .increment(1);
-    };
-}
 use imauth_core::domain::session::{Cookie, Session, SessionState};
 use imauth_core::domain::Platform;
 use imauth_core::AppContainer;
@@ -145,7 +134,6 @@ impl AuthService for AuthGrpcService {
             Ok::<AuthEvent, Status>(evt)
         });
 
-        record_grpc!("login", Result::<(), tonic::Status>::Ok(()));
         Ok(Response::new(Box::pin(stream) as Self::LoginStream))
     }
 
@@ -154,12 +142,7 @@ impl AuthService for AuthGrpcService {
         request: Request<StatusRequest>,
     ) -> Result<Response<AuthStatusResponse>, Status> {
         let req = request.into_inner();
-        let session = self
-            .container
-            .get_status
-            .execute(&req.session_id)
-            .await;
-        record_grpc!("get_status", session);
+        let session = self.container.get_status.execute(&req.session_id).await;
         let session = session.map_err(map_auth_err)?;
 
         Ok(Response::new(AuthStatusResponse {
@@ -176,12 +159,7 @@ impl AuthService for AuthGrpcService {
         request: Request<CancelRequest>,
     ) -> Result<Response<AuthResponse>, Status> {
         let req = request.into_inner();
-        let cancel_result = self
-            .container
-            .cancel_session
-            .execute(&req.session_id)
-            .await;
-        record_grpc!("cancel", cancel_result);
+        let cancel_result = self.container.cancel_session.execute(&req.session_id).await;
         cancel_result.map_err(map_auth_err)?;
 
         Ok(Response::new(AuthResponse {
@@ -220,12 +198,7 @@ impl SessionService for SessionGrpcService {
             Some(req.domains)
         };
 
-        let cookies = self
-            .container
-            .get_cookies
-            .execute(platform, domains)
-            .await;
-        record_grpc!("get_cookies", cookies);
+        let cookies = self.container.get_cookies.execute(platform, domains).await;
         let cookies = cookies.map_err(map_auth_err)?;
 
         Ok(Response::new(CookieList {
@@ -247,7 +220,6 @@ impl SessionService for SessionGrpcService {
             .update_cookies
             .execute(platform, cookies)
             .await;
-        record_grpc!("update_cookies", update_result);
         update_result.map_err(map_auth_err)?;
 
         Ok(Response::new(CookieList {
@@ -263,12 +235,7 @@ impl SessionService for SessionGrpcService {
         let platform = platform_from_proto(req.platform)
             .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
 
-        let content = self
-            .container
-            .export_netscape
-            .execute(platform)
-            .await;
-        record_grpc!("export_netscape", content);
+        let content = self.container.export_netscape.execute(platform).await;
         let content = content.map_err(map_auth_err)?;
 
         Ok(Response::new(NetscapeExport { content }))
@@ -282,12 +249,7 @@ impl SessionService for SessionGrpcService {
         let platform = platform_from_proto(req.platform)
             .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
 
-        let outcome = self
-            .container
-            .validate_session
-            .execute(platform)
-            .await;
-        record_grpc!("validate_session", outcome);
+        let outcome = self.container.validate_session.execute(platform).await;
         let outcome = outcome.map_err(map_auth_err)?;
 
         Ok(Response::new(ValidationResult {
@@ -301,12 +263,7 @@ impl SessionService for SessionGrpcService {
         &self,
         _request: Request<Empty>,
     ) -> Result<Response<ConnectionStatusMap>, Status> {
-        let platforms = self
-            .container
-            .get_connection_status
-            .execute()
-            .await;
-        record_grpc!("get_connection_status", platforms);
+        let platforms = self.container.get_connection_status.execute().await;
         let platforms = platforms.map_err(map_auth_err)?;
 
         Ok(Response::new(ConnectionStatusMap { platforms }))
@@ -346,7 +303,6 @@ impl CredentialService for CredentialGrpcService {
             .save_credential
             .execute(platform, &req.username, &req.password, twofa)
             .await;
-        record_grpc!("save_credential", save_result);
         save_result.map_err(map_auth_err)?;
 
         Ok(Response::new(CredentialResponse {
@@ -364,12 +320,7 @@ impl CredentialService for CredentialGrpcService {
         let platform = platform_from_proto(req.platform)
             .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
 
-        let cred = self
-            .container
-            .get_credential
-            .execute(platform)
-            .await;
-        record_grpc!("get_credential", cred);
+        let cred = self.container.get_credential.execute(platform).await;
         let cred = cred.map_err(map_auth_err)?;
 
         match cred {
@@ -391,12 +342,7 @@ impl CredentialService for CredentialGrpcService {
         let platform = platform_from_proto(req.platform)
             .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
 
-        let delete_result = self
-            .container
-            .delete_credential
-            .execute(platform)
-            .await;
-        record_grpc!("delete_credential", delete_result);
+        let delete_result = self.container.delete_credential.execute(platform).await;
         delete_result.map_err(map_auth_err)?;
 
         Ok(Response::new(CredentialResponse {
@@ -464,8 +410,14 @@ mod tests {
         let pairs = [
             (SessionState::Idle, ProtoAuthStatus::Idle),
             (SessionState::Loading, ProtoAuthStatus::Loading),
-            (SessionState::Authenticating, ProtoAuthStatus::Authenticating),
-            (SessionState::WaitingForUser, ProtoAuthStatus::WaitingForUser),
+            (
+                SessionState::Authenticating,
+                ProtoAuthStatus::Authenticating,
+            ),
+            (
+                SessionState::WaitingForUser,
+                ProtoAuthStatus::WaitingForUser,
+            ),
             (SessionState::Connected, ProtoAuthStatus::Connected),
             (SessionState::Failed, ProtoAuthStatus::Failed),
         ];

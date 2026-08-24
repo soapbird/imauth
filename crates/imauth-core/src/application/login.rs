@@ -3,34 +3,9 @@ use crate::domain::session::{Cookie, Session, SessionState};
 use crate::domain::Platform;
 use crate::ports::browser::BrowserSessionFactory;
 use crate::ports::repository::{CookieRepository, SessionRepository};
-use metrics::histogram;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-
-struct LoginTimer {
-    start: std::time::Instant,
-    platform: String,
-}
-
-impl LoginTimer {
-    fn new(platform: &str) -> Self {
-        Self {
-            start: std::time::Instant::now(),
-            platform: platform.to_string(),
-        }
-    }
-}
-
-impl Drop for LoginTimer {
-    fn drop(&mut self) {
-        histogram!(
-            "login_duration_seconds",
-            "platform" => self.platform.clone()
-        )
-        .record(self.start.elapsed().as_secs_f64());
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum LoginEvent {
@@ -78,7 +53,6 @@ impl LoginUseCase {
     }
 
     pub async fn execute(&self, platform: Platform, tx: mpsc::Sender<LoginEvent>) {
-        let _timer = LoginTimer::new(platform.as_str());
         let id = uuid::Uuid::new_v4().to_string();
         let initial = Session::new(id, platform.as_str().to_string());
 

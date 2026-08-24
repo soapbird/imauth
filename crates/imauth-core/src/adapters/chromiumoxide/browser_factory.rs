@@ -5,7 +5,6 @@ use crate::Result;
 use async_trait::async_trait;
 use chromiumoxide::Browser;
 use futures::StreamExt;
-use metrics::histogram;
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -105,7 +104,6 @@ impl PooledBrowserFactory {
 #[async_trait]
 impl BrowserSessionFactory for PooledBrowserFactory {
     async fn acquire(&self) -> Result<Box<dyn BrowserSession>> {
-        let start = std::time::Instant::now();
         // Try each slot in order; first available wins.
         for slot in &self.slots {
             if let Ok(permit) = slot.semaphore.clone().try_acquire_owned() {
@@ -133,7 +131,6 @@ impl BrowserSessionFactory for PooledBrowserFactory {
 
         let browser = ChromeSlot::connect(&slot.cdp_url).await?;
 
-        histogram!("browser_pool_wait_seconds").record(start.elapsed().as_secs_f64());
         Ok(Box::new(ChromiumOxideBrowserSession {
             browser: Some(browser),
             viewer_url: slot.viewer_url.clone(),

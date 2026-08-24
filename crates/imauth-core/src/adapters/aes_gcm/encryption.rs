@@ -47,12 +47,6 @@ impl AesGcmEncryptionService {
     }
 }
 
-pub fn generate_key() -> String {
-    let mut key = [0u8; 32];
-    rand::thread_rng().fill(&mut key);
-    BASE64.encode(key)
-}
-
 impl EncryptionService for AesGcmEncryptionService {
     fn encrypt(&self, plaintext: &str) -> Result<String> {
         let mut nonce_bytes = [0u8; 12];
@@ -120,7 +114,7 @@ mod tests {
     #[test]
     fn from_config_accepts_configured_key() {
         let mut config = Config::default();
-        config.security.encryption_key = Some(generate_key());
+        config.security.encryption_key = Some(STANDARD_KEY.to_string());
         assert!(AesGcmEncryptionService::from_config(&config).is_ok());
     }
 

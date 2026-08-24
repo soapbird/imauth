@@ -72,15 +72,4 @@ impl CredentialRepository for SqliteCredentialRepository {
             .await?;
         Ok(())
     }
-
-    async fn get_decrypted_password(&self, platform: &str) -> Result<Option<(String, String)>> {
-        let cred = self.get(platform).await?;
-        match cred {
-            Some(c) => {
-                let password = self.encryption.decrypt(&c.password_encrypted)?;
-                Ok(Some((c.username, password)))
-            }
-            None => Ok(None),
-        }
-    }
 }

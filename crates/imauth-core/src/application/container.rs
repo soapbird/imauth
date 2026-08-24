@@ -1,6 +1,5 @@
 use crate::adapters::aes_gcm::AesGcmEncryptionService;
 use crate::adapters::chromiumoxide::PooledBrowserFactory;
-use crate::adapters::fs::FsSnapshotSink;
 use crate::adapters::sqlite::{
     self, SqliteCookieRepository, SqliteCredentialRepository, SqliteSessionRepository,
 };
@@ -17,7 +16,6 @@ use crate::config::Config;
 use crate::ports::browser::BrowserSessionFactory;
 use crate::ports::encryption::EncryptionService;
 use crate::ports::repository::{CookieRepository, CredentialRepository, SessionRepository};
-use crate::ports::snapshot::SnapshotSink;
 use crate::Result;
 use std::sync::Arc;
 use std::time::Duration;
@@ -62,8 +60,6 @@ impl AppContainer {
         let viewer_urls = config.browser_viewer_urls();
         let browser: Arc<dyn BrowserSessionFactory> =
             Arc::new(PooledBrowserFactory::new(cdp_urls, &viewer_urls));
-
-        let _snapshot: Arc<dyn SnapshotSink> = Arc::new(FsSnapshotSink::new(config.snapshot_dir()));
 
         let login = Arc::new(LoginUseCase::new(
             sessions.clone(),
