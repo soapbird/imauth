@@ -128,7 +128,7 @@ jobs:
           path: sdk/typescript/dist/
 
   github-release:
-    needs: [build, publish-sdk-python, publish-sdk-ts]
+    needs: [build, publish-docker, publish-sdk-python, publish-sdk-ts]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -151,5 +151,5 @@ jobs:
         with:
           files: |
             artifacts/*/*.tar.gz
-            artifacts/python-sdk/*
+            artifacts/*.whl
           generate_release_notes: true
