@@ -58,14 +58,18 @@ impl AppContainer {
 
         let cdp_urls = config.cdp_urls();
         let viewer_urls = config.browser_viewer_urls();
-        let browser: Arc<dyn BrowserSessionFactory> =
-            Arc::new(PooledBrowserFactory::new(cdp_urls, &viewer_urls));
+        let login_timeout = Duration::from_secs(config.login_timeout_secs());
+        let browser: Arc<dyn BrowserSessionFactory> = Arc::new(PooledBrowserFactory::new(
+            cdp_urls,
+            &viewer_urls,
+            login_timeout,
+        ));
 
         let login = Arc::new(LoginUseCase::new(
             sessions.clone(),
             cookies.clone(),
             browser.clone(),
-            Duration::from_secs(config.login_timeout_secs()),
+            login_timeout,
         ));
         let get_cookies = Arc::new(GetCookiesUseCase::new(cookies.clone()));
         let update_cookies = Arc::new(UpdateCookiesUseCase::new(cookies.clone()));

@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use chromiumoxide::Browser;
 use futures::StreamExt;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// A single Chrome instance with its own CDP connection, semaphore, and viewer URL.
@@ -78,10 +79,11 @@ impl ChromeSlot {
 /// own viewer URL. Login acquires a free slot, login completion releases it.
 pub struct PooledBrowserFactory {
     slots: Vec<Arc<ChromeSlot>>,
+    acquire_timeout: Duration,
 }
 
 impl PooledBrowserFactory {
-    pub fn new(cdp_urls: Vec<String>, viewer_urls: &[String]) -> Self {
+    pub fn new(cdp_urls: Vec<String>, viewer_urls: &[String], acquire_timeout: Duration) -> Self {
         let slots = cdp_urls
             .iter()
             .enumerate()
@@ -91,7 +93,21 @@ impl PooledBrowserFactory {
             })
             .collect();
 
-        Self { slots }
+        Self {
+            slots,
+            acquire_timeout,
+        }
+    }
+
+    async fn connect(&self, slot: &ChromeSlot) -> Result<Browser> {
+        tokio::time::timeout(self.acquire_timeout, ChromeSlot::connect(&slot.cdp_url))
+            .await
+            .map_err(|_| {
+                ImauthError::Browser(format!(
+                    "CDP connection timed out after {}s",
+                    self.acquire_timeout.as_secs()
+                ))
+            })?
     }
 }
 
@@ -101,9 +117,12 @@ impl BrowserSessionFactory for PooledBrowserFactory {
         // Try each slot in order; first available wins.
         for slot in &self.slots {
             if let Ok(permit) = slot.semaphore.clone().try_acquire_owned() {
-                let browser = match ChromeSlot::connect(&slot.cdp_url).await {
+                let browser = match self.connect(slot).await {
                     Ok(b) => b,
-                    Err(_e) => continue, // try next slot
+                    Err(error) => {
+                        tracing::warn!(cdp_url = %slot.cdp_url, %error, "failed to connect to browser slot");
+                        continue;
+                    }
                 };
 
                 return Ok(Box::new(ChromiumOxideBrowserSession {
@@ -115,15 +134,22 @@ impl BrowserSessionFactory for PooledBrowserFactory {
         }
 
         // All slots busy — block on the first one.
-        let slot = &self.slots[0];
-        let permit = slot
-            .semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|e| ImauthError::Browser(format!("All browser slots busy: {e}")))?;
+        let slot = self
+            .slots
+            .first()
+            .ok_or_else(|| ImauthError::Browser("No browser slots configured".into()))?;
+        let permit =
+            tokio::time::timeout(self.acquire_timeout, slot.semaphore.clone().acquire_owned())
+                .await
+                .map_err(|_| {
+                    ImauthError::Browser(format!(
+                        "Browser slot acquisition timed out after {}s",
+                        self.acquire_timeout.as_secs()
+                    ))
+                })?
+                .map_err(|e| ImauthError::Browser(format!("All browser slots busy: {e}")))?;
 
-        let browser = ChromeSlot::connect(&slot.cdp_url).await?;
+        let browser = self.connect(slot).await?;
 
         Ok(Box::new(ChromiumOxideBrowserSession {
             browser: Some(browser),
@@ -157,6 +183,7 @@ mod tests {
                 "http://chrome-2:9223".to_string(),
             ],
             &viewer_urls,
+            Duration::from_secs(30),
         );
 
         assert_eq!(
@@ -175,7 +202,11 @@ mod tests {
 
     #[test]
     fn empty_viewer_urls_do_not_generate_legacy_novnc_urls() {
-        let factory = PooledBrowserFactory::new(vec!["http://chrome-0:9223".to_string()], &[]);
+        let factory = PooledBrowserFactory::new(
+            vec!["http://chrome-0:9223".to_string()],
+            &[],
+            Duration::from_secs(30),
+        );
 
         assert_eq!(factory.viewer_url().as_deref(), Some(""));
     }
@@ -189,10 +220,33 @@ mod tests {
                 "http://chrome-1:9223".to_string(),
             ],
             &viewer_urls,
+            Duration::from_secs(30),
         );
 
         assert_eq!(factory.slots[0].viewer_url, viewer_urls[0]);
         assert!(factory.slots[1].viewer_url.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn acquire_times_out_when_every_slot_is_busy() {
+        let factory = PooledBrowserFactory::new(
+            vec!["http://chrome-0:9223".to_string()],
+            &[],
+            Duration::from_secs(1),
+        );
+        let _permit = factory.slots[0]
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
+        let result = factory.acquire().await;
+
+        assert!(matches!(
+            result,
+            Err(ImauthError::Browser(message)) if message.contains("acquisition timed out")
+        ));
     }
 }
 
