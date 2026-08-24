@@ -6,10 +6,16 @@ pub enum Platform {
     Instagram,
     Threads,
     Naver,
+    Novelpia,
 }
 
 impl Platform {
-    pub const ALL: &'static [Platform] = &[Platform::Instagram, Platform::Threads, Platform::Naver];
+    pub const ALL: &'static [Platform] = &[
+        Platform::Instagram,
+        Platform::Threads,
+        Platform::Naver,
+        Platform::Novelpia,
+    ];
 
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
@@ -17,6 +23,7 @@ impl Platform {
             "instagram" => Some(Platform::Instagram),
             "threads" => Some(Platform::Threads),
             "naver" => Some(Platform::Naver),
+            "novelpia" => Some(Platform::Novelpia),
             _ => None,
         }
     }
@@ -26,6 +33,7 @@ impl Platform {
             Platform::Instagram => "instagram",
             Platform::Threads => "threads",
             Platform::Naver => "naver",
+            Platform::Novelpia => "novelpia",
         }
     }
 
@@ -33,6 +41,7 @@ impl Platform {
         match self {
             Platform::Instagram | Platform::Threads => "https://www.instagram.com/accounts/login/",
             Platform::Naver => "https://nid.naver.com/nidlogin.login",
+            Platform::Novelpia => "https://novelpia.com/login/",
         }
     }
 
@@ -42,6 +51,7 @@ impl Platform {
                 &[".instagram.com", ".threads.net", ".threads.com"]
             }
             Platform::Naver => &[".naver.com", ".nid.naver.com"],
+            Platform::Novelpia => &[".novelpia.com"],
         }
     }
 
@@ -49,6 +59,7 @@ impl Platform {
         match self {
             Platform::Instagram | Platform::Threads => "sessionid",
             Platform::Naver => "NID_AUT",
+            Platform::Novelpia => "LOGINKEY",
         }
     }
 
@@ -233,5 +244,37 @@ mod tests {
         session_cookie.expires = None;
 
         assert!(Platform::Instagram.has_session_cookie(&[session_cookie]));
+    }
+
+    #[test]
+    fn novelpia_login_url_and_cookie_domain() {
+        assert_eq!(
+            Platform::Novelpia.login_url(),
+            "https://novelpia.com/login/"
+        );
+        assert_eq!(Platform::Novelpia.cookie_domains(), &[".novelpia.com"]);
+    }
+
+    #[test]
+    fn novelpia_session_cookie_name_is_loginkey() {
+        assert_eq!(Platform::Novelpia.session_cookie_name(), "LOGINKEY");
+    }
+
+    #[test]
+    fn novelpia_has_session_cookie_true_when_present() {
+        let cookies = vec![cookie("LOGINKEY", ".novelpia.com")];
+        assert!(Platform::Novelpia.has_session_cookie(&cookies));
+    }
+
+    #[test]
+    fn novelpia_filter_cookies_keeps_only_novelpia_domains() {
+        let cookies = vec![
+            cookie("LOGINKEY", ".novelpia.com"),
+            cookie("USERKEY", "novelpia.com"),
+            cookie("foo", "example.com"),
+        ];
+        let kept = Platform::Novelpia.filter_cookies(cookies);
+        assert_eq!(kept.len(), 2);
+        assert!(kept.iter().all(|c| c.name != "foo"));
     }
 }

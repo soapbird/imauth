@@ -9,6 +9,7 @@ class Platform(str, Enum):
     INSTAGRAM = "instagram"
     THREADS = "threads"
     NAVER = "naver"
+    NOVELPIA = "novelpia"
 
 
 class AuthStatus(str, Enum):

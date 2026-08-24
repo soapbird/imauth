@@ -40,6 +40,7 @@ fn platform_from_proto(p: i32) -> Option<Platform> {
         ProtoPlatform::Instagram => Some(Platform::Instagram),
         ProtoPlatform::Threads => Some(Platform::Threads),
         ProtoPlatform::Naver => Some(Platform::Naver),
+        ProtoPlatform::Novelpia => Some(Platform::Novelpia),
         ProtoPlatform::Unspecified => None,
     }
 }
@@ -406,6 +407,7 @@ mod tests {
         assert!(matches!(platform_from_proto(1), Some(Platform::Instagram)));
         assert!(matches!(platform_from_proto(2), Some(Platform::Threads)));
         assert!(matches!(platform_from_proto(3), Some(Platform::Naver)));
+        assert!(matches!(platform_from_proto(4), Some(Platform::Novelpia)));
     }
 
     #[test]
