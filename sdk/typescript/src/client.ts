@@ -1,7 +1,7 @@
 import * as grpc from "@grpc/grpc-js";
 import * as protoLoader from "@grpc/proto-loader";
-import * as path from "path";
-import { AuthEvent, Cookie, CredentialInfo, Platform } from "./types";
+import * as path from "node:path";
+import type { Cookie, CredentialInfo, Platform } from "./types";
 
 const PROTO_ROOT = path.join(__dirname, "../../../proto");
 
@@ -19,14 +19,18 @@ const packageDefinition = protoLoader.loadSync(
     defaults: true,
     oneofs: true,
     includeDirs: [PROTO_ROOT],
-  }
+  },
 );
 
 const proto = grpc.loadPackageDefinition(packageDefinition) as any;
 
 export interface ImauthClientOptions {
   /** Bearer API key to attach as `authorization: Bearer <key>` on every call. */
-  apiKey?: string;
+  readonly apiKey?: string;
+  /** PEM-encoded root certificate material that enables TLS. */
+  readonly rootCert?: string | Buffer;
+  /** TLS server name used to verify the server certificate. */
+  readonly serverName?: string;
 }
 
 export class ImauthClient {
@@ -35,23 +39,33 @@ export class ImauthClient {
   private credentialClient: any;
   private apiKey?: string;
 
-  constructor(
-    serverAddress: string = "localhost:6100",
-    options: ImauthClientOptions = {}
-  ) {
+  constructor(serverAddress: string = "localhost:6100", options: ImauthClientOptions = {}) {
     this.apiKey = options.apiKey;
-    const credentials = grpc.credentials.createInsecure();
-    this.authClient = new proto.imauth.v1.AuthService(
-      serverAddress,
-      credentials
-    );
+    const credentials =
+      options.rootCert === undefined
+        ? grpc.credentials.createInsecure()
+        : grpc.credentials.createSsl(Buffer.from(options.rootCert));
+
+    if (options.serverName === undefined) {
+      this.authClient = new proto.imauth.v1.AuthService(serverAddress, credentials);
+      this.sessionClient = new proto.imauth.v1.SessionService(serverAddress, credentials);
+      this.credentialClient = new proto.imauth.v1.CredentialService(serverAddress, credentials);
+      return;
+    }
+
+    const channelOptions = {
+      "grpc.ssl_target_name_override": options.serverName,
+    };
+    this.authClient = new proto.imauth.v1.AuthService(serverAddress, credentials, channelOptions);
     this.sessionClient = new proto.imauth.v1.SessionService(
       serverAddress,
-      credentials
+      credentials,
+      channelOptions,
     );
     this.credentialClient = new proto.imauth.v1.CredentialService(
       serverAddress,
-      credentials
+      credentials,
+      channelOptions,
     );
   }
 
@@ -67,10 +81,7 @@ export class ImauthClient {
   // --- auth ---------------------------------------------------------------
 
   login(platform: Platform): grpc.ClientReadableStream<any> {
-    return this.authClient.Login(
-      { platform },
-      this.buildMetadata()
-    );
+    return this.authClient.Login({ platform }, this.buildMetadata());
   }
 
   getStatus(sessionId: string): Promise<any> {
@@ -83,21 +94,17 @@ export class ImauthClient {
             if (err.code === grpc.status.NOT_FOUND) resolve(null);
             else reject(err);
           } else resolve(response);
-        }
+        },
       );
     });
   }
 
   cancel(sessionId: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.authClient.Cancel(
-        { session_id: sessionId },
-        this.buildMetadata(),
-        (err: any) => {
-          if (err && err.code !== grpc.status.NOT_FOUND) reject(err);
-          else resolve();
-        }
-      );
+      this.authClient.Cancel({ session_id: sessionId }, this.buildMetadata(), (err: any) => {
+        if (err && err.code !== grpc.status.NOT_FOUND) reject(err);
+        else resolve();
+      });
     });
   }
 
@@ -111,7 +118,7 @@ export class ImauthClient {
         (err: any, response: any) => {
           if (err) reject(err);
           else resolve(response.cookies || []);
-        }
+        },
       );
     });
   }
@@ -133,7 +140,7 @@ export class ImauthClient {
         (err: any) => {
           if (err) reject(err);
           else resolve();
-        }
+        },
       );
     });
   }
@@ -146,7 +153,7 @@ export class ImauthClient {
         (err: any, response: any) => {
           if (err) reject(err);
           else resolve(response.content);
-        }
+        },
       );
     });
   }
@@ -159,7 +166,7 @@ export class ImauthClient {
         (err: any, response: any) => {
           if (err) reject(err);
           else resolve(Boolean(response.valid));
-        }
+        },
       );
     });
   }
@@ -172,7 +179,7 @@ export class ImauthClient {
         (err: any, response: any) => {
           if (err) reject(err);
           else resolve(response.platforms || {});
-        }
+        },
       );
     });
   }
@@ -183,7 +190,7 @@ export class ImauthClient {
     platform: Platform,
     username: string,
     password: string,
-    twofaMethod?: string
+    twofaMethod?: string,
   ): Promise<any> {
     return new Promise((resolve, reject) => {
       this.credentialClient.Save(
@@ -197,45 +204,37 @@ export class ImauthClient {
         (err: any, response: any) => {
           if (err) reject(err);
           else resolve(response);
-        }
+        },
       );
     });
   }
 
   getCredentials(platform: Platform): Promise<CredentialInfo | null> {
     return new Promise((resolve, reject) => {
-      this.credentialClient.Get(
-        { platform },
-        this.buildMetadata(),
-        (err: any, response: any) => {
-          if (err) {
-            if (err.code === grpc.status.NOT_FOUND) resolve(null);
-            else reject(err);
-          } else {
-            resolve({
-              platform: response.platform,
-              username: response.username,
-              hasPassword: response.has_password,
-              twofaMethod: response.twofa_method || "",
-            });
-          }
+      this.credentialClient.Get({ platform }, this.buildMetadata(), (err: any, response: any) => {
+        if (err) {
+          if (err.code === grpc.status.NOT_FOUND) resolve(null);
+          else reject(err);
+        } else {
+          resolve({
+            platform: response.platform,
+            username: response.username,
+            hasPassword: response.has_password,
+            twofaMethod: response.twofa_method || "",
+          });
         }
-      );
+      });
     });
   }
 
   deleteCredentials(platform: Platform): Promise<boolean> {
     return new Promise((resolve, reject) => {
-      this.credentialClient.Delete(
-        { platform },
-        this.buildMetadata(),
-        (err: any) => {
-          if (err) {
-            if (err.code === grpc.status.NOT_FOUND) resolve(false);
-            else reject(err);
-          } else resolve(true);
-        }
-      );
+      this.credentialClient.Delete({ platform }, this.buildMetadata(), (err: any) => {
+        if (err) {
+          if (err.code === grpc.status.NOT_FOUND) resolve(false);
+          else reject(err);
+        } else resolve(true);
+      });
     });
   }
 
