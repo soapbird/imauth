@@ -110,3 +110,17 @@ jobs:
           npm run format:check
           npm test
           npm run build
+
+  provider-recorder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+      - name: test recorder redaction and filesystem boundaries
+        run: >-
+          node --test
+          scripts/provider-record-redaction.test.mjs
+          scripts/provider-record-filesystem.test.mjs
+          scripts/provider-record-output-root.test.mjs

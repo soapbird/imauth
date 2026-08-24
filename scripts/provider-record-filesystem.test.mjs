@@ -128,7 +128,6 @@ function runRecorder({
 				? { IMAUTH_TEST_FILE_SYMLINK_TARGET: fileSymlinkTarget }
 				: {}),
 		},
-		umask: 0,
 	});
 }
 

@@ -35,6 +35,14 @@ const context = {
 };
 export const chromium = { async launch() { return { async newContext() { return context; }, async close() {} }; } };
 `;
+const recorderWrapper = `
+const requested = process.env.IMAUTH_TEST_CHILD_UMASK;
+if (requested) {
+  process.umask(Number.parseInt(requested, 8));
+  process.stderr.write(\`IMAUTH_TEST_CHILD_UMASK=\${process.umask().toString(8).padStart(4, "0")}\\n\`);
+}
+await import("./provider-record.mjs");
+`;
 
 function fixture() {
 	const root = realpathSync(
@@ -53,6 +61,7 @@ function fixture() {
 		path.join(runtime, "node_modules", "playwright", "index.mjs"),
 		fakePlaywright,
 	);
+	writeFileSync(path.join(runtime, "run-recorder.mjs"), recorderWrapper);
 	for (const name of ["provider-record.mjs", "provider-record-redaction.mjs"]) {
 		writeFileSync(
 			path.join(runtime, name),
@@ -70,7 +79,7 @@ function runRecorder(
 	environment = {},
 ) {
 	const arguments_ = [
-		"provider-record.mjs",
+		"run-recorder.mjs",
 		"--url",
 		"https://example.test/login",
 		"--output-root",
@@ -82,8 +91,11 @@ function runRecorder(
 	return spawnSync(process.execPath, arguments_, {
 		cwd: runtime,
 		encoding: "utf8",
-		env: { ...process.env, ...environment },
-		umask,
+		env: {
+			...process.env,
+			...environment,
+			IMAUTH_TEST_CHILD_UMASK: umask.toString(8),
+		},
 	});
 }
 
@@ -115,12 +127,15 @@ test("hardens a pre-existing permissive output root", () => {
 	}
 });
 
-test("creates usable private output with a restrictive umask", () => {
+test("creates usable private output with a restrictive umask", {
+	skip: process.platform === "win32",
+}, () => {
 	const current = fixture();
 	try {
 		const outputRoot = path.join(current.root, "records");
 		const result = runRecorder(current.runtime, outputRoot, 0o777, true);
 		assert.equal(result.status, 0, result.stderr);
+		assert.match(result.stderr, /IMAUTH_TEST_CHILD_UMASK=0777/);
 		assert.equal(statSync(outputRoot).mode & 0o777, 0o700);
 		const [record] = readdirSync(outputRoot);
 		const recordRoot = path.join(outputRoot, record);
