@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- `PLATFORM_NOVELPIA` (4): browser-driven login for Novelpia. `LOGINKEY` is the session cookie — Apple sign-in sessions never issue `ISLOGIN`.
+
 ## [0.6.0] - 2026-06-29
 
 ### Added
