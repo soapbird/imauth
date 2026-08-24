@@ -16,11 +16,11 @@ import argparse
 import json
 import os
 import sys
-from typing import Optional
+from pathlib import Path
 
 from imauth.client import ImauthClient
 from imauth.exceptions import ImauthError
-from imauth.models import Cookie, Platform
+from imauth.models import Platform
 
 
 def _emit(obj) -> None:
@@ -31,7 +31,15 @@ def _emit(obj) -> None:
 
 
 def _client(args: argparse.Namespace) -> ImauthClient:
-    return ImauthClient(server_address=args.server, api_key=args.api_key)
+    root_certificates = (
+        Path(args.tls_ca_cert).read_bytes() if args.tls_ca_cert is not None else None
+    )
+    return ImauthClient(
+        server_address=args.server,
+        api_key=args.api_key,
+        root_certificates=root_certificates,
+        server_name=args.tls_server_name,
+    )
 
 
 def _cmd_login(client: ImauthClient, args: argparse.Namespace) -> int:
@@ -66,7 +74,7 @@ def _cmd_validate(client: ImauthClient, args: argparse.Namespace) -> int:
     return 0 if valid else 1
 
 
-def _cmd_connections(client: ImauthClient, args: argparse.Namespace) -> int:
+def _cmd_connections(client: ImauthClient, _args: argparse.Namespace) -> int:
     _emit(client.get_connection_status())
     return 0
 
@@ -111,6 +119,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--api-key",
         default=os.environ.get("IMAUTH_API_KEY"),
         help="bearer API key (env IMAUTH_API_KEY)",
+    )
+    parser.add_argument(
+        "--tls-ca-cert",
+        default=os.environ.get("IMAUTH_TLS_CA_CERT"),
+        help="CA certificate file for TLS (env IMAUTH_TLS_CA_CERT)",
+    )
+    parser.add_argument(
+        "--tls-server-name",
+        default=os.environ.get("IMAUTH_TLS_SERVER_NAME"),
+        help="TLS server name override (env IMAUTH_TLS_SERVER_NAME)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -166,7 +184,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     client = _client(args)
     try:

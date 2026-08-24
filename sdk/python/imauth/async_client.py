@@ -1,15 +1,10 @@
 """Async imauth client."""
 
-from typing import AsyncIterator, Optional
+from collections.abc import AsyncIterator
 
 import grpc
 import grpc.aio
 
-from imauth.v1 import auth_pb2, auth_pb2_grpc
-from imauth.v1 import common_pb2
-from imauth.v1 import credential_pb2, credential_pb2_grpc
-from imauth.v1 import session_pb2, session_pb2_grpc
-from imauth.models import AuthEvent, AuthStatus, Cookie, CredentialInfo, Platform
 from imauth._converters import (
     api_key_metadata,
     auth_event_from_proto,
@@ -18,6 +13,16 @@ from imauth._converters import (
     platform_from_proto,
     platform_to_proto,
     status_response_to_event,
+)
+from imauth.models import AuthEvent, Cookie, CredentialInfo, Platform
+from imauth.v1 import (
+    auth_pb2,
+    auth_pb2_grpc,
+    common_pb2,
+    credential_pb2,
+    credential_pb2_grpc,
+    session_pb2,
+    session_pb2_grpc,
 )
 
 # Backward-compat private aliases.
@@ -38,11 +43,28 @@ class AsyncImauthClient:
     def __init__(
         self,
         server_address: str = "localhost:6100",
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
+        root_certificates: bytes | None = None,
+        server_name: str | None = None,
     ):
         self.server_address = server_address
         self.api_key = api_key
-        self._channel = grpc.aio.insecure_channel(server_address)
+        if root_certificates is None and server_name is None:
+            self._channel = grpc.aio.insecure_channel(server_address)
+        else:
+            credentials = grpc.ssl_channel_credentials(
+                root_certificates=root_certificates
+            )
+            options = (
+                (("grpc.ssl_target_name_override", server_name),)
+                if server_name is not None
+                else ()
+            )
+            self._channel = grpc.aio.secure_channel(
+                server_address,
+                credentials,
+                options=options,
+            )
 
     def _meta(self):
         return api_key_metadata(self.api_key)
@@ -61,7 +83,7 @@ class AsyncImauthClient:
         async for event in stub.Login(req, metadata=self._meta()):
             yield auth_event_from_proto(event)
 
-    async def get_status(self, session_id: str) -> Optional[AuthEvent]:
+    async def get_status(self, session_id: str) -> AuthEvent | None:
         """Get current status of a session. Returns None if the session is unknown."""
         stub = auth_pb2_grpc.AuthServiceStub(self._channel)
         req = auth_pb2.StatusRequest(session_id=session_id)
@@ -88,7 +110,7 @@ class AsyncImauthClient:
     async def get_cookies(
         self,
         platform: Platform,
-        domains: Optional[list[str]] = None,
+        domains: list[str] | None = None,
     ) -> list[Cookie]:
         """Get stored cookies for a platform, optionally filtered by domain."""
         stub = session_pb2_grpc.SessionServiceStub(self._channel)
@@ -135,7 +157,7 @@ class AsyncImauthClient:
         platform: Platform,
         username: str,
         password: str,
-        twofa_method: Optional[str] = None,
+        twofa_method: str | None = None,
     ) -> None:
         """Save credentials for a platform."""
         stub = credential_pb2_grpc.CredentialServiceStub(self._channel)
@@ -147,7 +169,7 @@ class AsyncImauthClient:
         )
         await stub.Save(req, metadata=self._meta())
 
-    async def get_credentials(self, platform: Platform) -> Optional[CredentialInfo]:
+    async def get_credentials(self, platform: Platform) -> CredentialInfo | None:
         """Get stored credential info for a platform. Returns None on NOT_FOUND."""
         stub = credential_pb2_grpc.CredentialServiceStub(self._channel)
         req = credential_pb2.GetCredentialRequest(platform=platform_to_proto(platform))
