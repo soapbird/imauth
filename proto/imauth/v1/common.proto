@@ -6,6 +6,7 @@ enum Platform {
   PLATFORM_INSTAGRAM = 1;
   PLATFORM_THREADS = 2;
   PLATFORM_NAVER = 3;
+  PLATFORM_MUNPIA = 5;
 }
 
 enum AuthStatus {

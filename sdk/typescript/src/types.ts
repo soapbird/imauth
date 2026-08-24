@@ -3,6 +3,7 @@ export enum Platform {
   INSTAGRAM = 1,
   THREADS = 2,
   NAVER = 3,
+  MUNPIA = 5,
 }
 
 export enum AuthStatus {

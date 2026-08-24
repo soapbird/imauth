@@ -5,10 +5,16 @@ pub enum Platform {
     Instagram,
     Threads,
     Naver,
+    Munpia,
 }
 
 impl Platform {
-    pub const ALL: &'static [Platform] = &[Platform::Instagram, Platform::Threads, Platform::Naver];
+    pub const ALL: &'static [Platform] = &[
+        Platform::Instagram,
+        Platform::Threads,
+        Platform::Naver,
+        Platform::Munpia,
+    ];
 
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
@@ -16,6 +22,7 @@ impl Platform {
             "instagram" => Some(Platform::Instagram),
             "threads" => Some(Platform::Threads),
             "naver" => Some(Platform::Naver),
+            "munpia" => Some(Platform::Munpia),
             _ => None,
         }
     }
@@ -25,6 +32,7 @@ impl Platform {
             Platform::Instagram => "instagram",
             Platform::Threads => "threads",
             Platform::Naver => "naver",
+            Platform::Munpia => "munpia",
         }
     }
 
@@ -32,6 +40,7 @@ impl Platform {
         match self {
             Platform::Instagram | Platform::Threads => "https://www.instagram.com/accounts/login/",
             Platform::Naver => "https://nid.naver.com/nidlogin.login",
+            Platform::Munpia => "https://nssl.munpia.com/login",
         }
     }
 
@@ -41,6 +50,7 @@ impl Platform {
                 &[".instagram.com", ".threads.net", ".threads.com"]
             }
             Platform::Naver => &[".naver.com", ".nid.naver.com"],
+            Platform::Munpia => &[".munpia.com"],
         }
     }
 
@@ -48,6 +58,7 @@ impl Platform {
         match self {
             Platform::Instagram | Platform::Threads => "sessionid",
             Platform::Naver => "NID_AUT",
+            Platform::Munpia => "TOKEN",
         }
     }
 
@@ -210,5 +221,25 @@ mod tests {
     fn has_session_cookie_false_for_other_cookie_name() {
         let cookies = vec![cookie("csrftoken", ".instagram.com")];
         assert!(!Platform::Instagram.has_session_cookie(&cookies));
+    }
+
+    #[test]
+    fn munpia_login_url_and_cookie_domain() {
+        assert_eq!(
+            Platform::Munpia.login_url(),
+            "https://nssl.munpia.com/login"
+        );
+        assert_eq!(Platform::Munpia.cookie_domains(), &[".munpia.com"]);
+    }
+
+    #[test]
+    fn munpia_session_cookie_name_is_token() {
+        assert_eq!(Platform::Munpia.session_cookie_name(), "TOKEN");
+    }
+
+    #[test]
+    fn munpia_has_session_cookie_accepts_login_subdomain() {
+        let cookies = vec![cookie("TOKEN", ".nssl.munpia.com")];
+        assert!(Platform::Munpia.has_session_cookie(&cookies));
     }
 }
