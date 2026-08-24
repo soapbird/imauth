@@ -353,11 +353,15 @@ def test_close_closes_channel():
 def test_platform_to_proto_helper():
     assert client_module._platform_to_proto(Platform.INSTAGRAM) == 1
     assert client_module._platform_to_proto(Platform.THREADS) == 2
+    assert client_module._platform_to_proto(Platform.NOVELPIA) == 4
+    assert client_module._platform_to_proto(Platform.MUNPIA) == 5
 
 
 def test_platform_from_proto_helper():
     assert client_module._platform_from_proto(1) == "instagram"
     assert client_module._platform_from_proto(2) == "threads"
+    assert client_module._platform_from_proto(4) == "novelpia"
+    assert client_module._platform_from_proto(5) == "munpia"
     assert client_module._platform_from_proto(99) == "unknown"
 
 

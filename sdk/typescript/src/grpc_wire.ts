@@ -105,6 +105,10 @@ function readPlatform(record: Readonly<Record<string, unknown>>, field: string):
       return PlatformValue.THREADS;
     case PlatformValue.NAVER:
       return PlatformValue.NAVER;
+    case PlatformValue.NOVELPIA:
+      return PlatformValue.NOVELPIA;
+    case PlatformValue.MUNPIA:
+      return PlatformValue.MUNPIA;
     default:
       throw new GrpcResponseError(field);
   }

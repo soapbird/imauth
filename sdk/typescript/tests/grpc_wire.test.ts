@@ -1,8 +1,13 @@
 import * as protoLoader from "@grpc/proto-loader";
 import * as path from "node:path";
-import { AuthStatus } from "../src";
+import { AuthStatus, Platform } from "../src";
 import type { CancelRequest, StatusRequest } from "../src/grpc_contracts";
-import { GrpcResponseError, parseAuthEvent } from "../src/grpc_wire";
+import {
+  GrpcResponseError,
+  parseAuthEvent,
+  parseCredentialInfo,
+  parseCredentialSaveResult,
+} from "../src/grpc_wire";
 
 const PROTO_ROOT = path.join(__dirname, "../proto");
 const packageDefinition = protoLoader.loadSync(path.join(PROTO_ROOT, "imauth/v1/auth.proto"), {
@@ -65,6 +70,26 @@ describe("gRPC response parsing", () => {
         viewerUrl: "",
       }),
     ).toThrow(GrpcResponseError);
+  });
+
+  it("accepts added platform values in credential responses", () => {
+    expect(
+      parseCredentialInfo({
+        platform: 4,
+        username: "novelpia-user",
+        hasPassword: true,
+        twofaMethod: "",
+      }),
+    ).toMatchObject({ platform: Platform.NOVELPIA });
+    expect(Platform.NOVELPIA).toBe(4);
+    expect(
+      parseCredentialSaveResult({
+        success: true,
+        platform: 5,
+        username: "munpia-user",
+      }),
+    ).toMatchObject({ platform: Platform.MUNPIA });
+    expect(Platform.MUNPIA).toBe(5);
   });
 });
 

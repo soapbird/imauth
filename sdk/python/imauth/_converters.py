@@ -7,8 +7,16 @@ _PLATFORM_TO_PROTO = {
     Platform.INSTAGRAM: common_pb2.Platform.PLATFORM_INSTAGRAM,
     Platform.THREADS: common_pb2.Platform.PLATFORM_THREADS,
     Platform.NAVER: common_pb2.Platform.PLATFORM_NAVER,
+    Platform.NOVELPIA: common_pb2.Platform.PLATFORM_NOVELPIA,
+    Platform.MUNPIA: common_pb2.Platform.PLATFORM_MUNPIA,
 }
-_PROTO_TO_PLATFORM = {1: "instagram", 2: "threads", 3: "naver"}
+_PROTO_TO_PLATFORM = {
+    1: "instagram",
+    2: "threads",
+    3: "naver",
+    4: "novelpia",
+    5: "munpia",
+}
 
 _STATUS_MAP: dict[int, AuthStatus] = {
     common_pb2.AuthStatus.AUTH_STATUS_IDLE: AuthStatus.IDLE,
