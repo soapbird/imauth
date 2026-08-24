@@ -85,9 +85,9 @@ Release images are published to `docker.lowapple.io` on every `v*` tag:
 
 ```bash
 # Pull a specific release (or :latest)
-docker pull docker.lowapple.io/imauth:v0.4.1
-docker pull docker.lowapple.io/imauth-chrome:v0.4.1
-docker pull docker.lowapple.io/imauth-chrome-proxy:v0.4.1
+docker pull docker.lowapple.io/imauth:v0.6.0
+docker pull docker.lowapple.io/imauth-chrome:v0.6.0
+docker pull docker.lowapple.io/imauth-chrome-proxy:v0.6.0
 ```
 
 Local image builds use the Makefile:
@@ -110,7 +110,7 @@ Release, so install it directly without cloning or running `protoc`:
 
 ```bash
 # Replace the tag/version with the one from the Releases page
-pip install https://github.com/imyounjs/imauth/releases/download/v0.4.1/imauth-0.4.1-py3-none-any.whl
+pip install https://github.com/imyounjs/imauth/releases/download/v0.6.0/imauth-0.6.0-py3-none-any.whl
 ```
 
 ```python
@@ -133,7 +133,7 @@ shell without installing anything permanently:
 
 ```bash
 # Point uvx at the release wheel; everything after `imauth` is the CLI
-WHL=https://github.com/imyounjs/imauth/releases/download/v0.4.1/imauth-0.4.1-py3-none-any.whl
+WHL=https://github.com/imyounjs/imauth/releases/download/v0.6.0/imauth-0.6.0-py3-none-any.whl
 
 export IMAUTH_URL=localhost:6100
 export IMAUTH_API_KEY=<key>
