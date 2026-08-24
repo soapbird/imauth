@@ -1,7 +1,7 @@
 use crate::domain::auth::classify_auth_state;
 use crate::domain::session::{Cookie, Session, SessionState};
 use crate::domain::Platform;
-use crate::ports::browser::BrowserSessionFactory;
+use crate::ports::browser::{BrowserSessionFactory, PageDriver};
 use crate::ports::repository::{CookieRepository, SessionRepository};
 use std::sync::Arc;
 use std::time::Duration;
@@ -27,6 +27,12 @@ async fn send_or_warn(
         true
     } else {
         false
+    }
+}
+
+async fn close_page(page: &dyn PageDriver, session_id: &str) {
+    if let Err(error) = page.close().await {
+        tracing::warn!(%session_id, %error, "failed to close login page");
     }
 }
 
@@ -76,11 +82,15 @@ impl LoginUseCase {
         };
 
         if send_or_warn(&tx, LoginEvent::Started(session.clone()), "started").await {
+            session.transition(SessionState::Failed, Some("Login cancelled".into()));
+            let _ = self.sessions.update(&session).await;
             return;
         }
 
         if tx.is_closed() {
             tracing::info!(session_id = %session.id, "login cancelled after session create");
+            session.transition(SessionState::Failed, Some("Login cancelled".into()));
+            let _ = self.sessions.update(&session).await;
             return;
         }
 
@@ -101,6 +111,8 @@ impl LoginUseCase {
 
         if tx.is_closed() {
             tracing::info!(session_id = %session.id, "login cancelled after browser acquire");
+            session.transition(SessionState::Failed, Some("Login cancelled".into()));
+            let _ = self.sessions.update(&session).await;
             return;
         }
 
@@ -117,6 +129,14 @@ impl LoginUseCase {
             }
         };
 
+        if tx.is_closed() {
+            tracing::info!(session_id = %session.id, "login cancelled after page open");
+            session.transition(SessionState::Failed, Some("Login cancelled".into()));
+            let _ = self.sessions.update(&session).await;
+            close_page(page.as_ref(), &session.id).await;
+            return;
+        }
+
         session.transition(
             SessionState::Loading,
             Some(format!("Opening {} login page...", platform.as_str())),
@@ -126,6 +146,7 @@ impl LoginUseCase {
         if let Err(e) = page.navigate(platform.login_url(), 30).await {
             session.transition(SessionState::Failed, Some(format!("Navigation error: {e}")));
             let _ = self.sessions.update(&session).await;
+            close_page(page.as_ref(), &session.id).await;
             send_or_warn(&tx, LoginEvent::Final(session, vec![]), "navigate-fail").await;
             return;
         }
@@ -145,6 +166,9 @@ impl LoginUseCase {
         )
         .await
         {
+            session.transition(SessionState::Failed, Some("Login cancelled".into()));
+            let _ = self.sessions.update(&session).await;
+            close_page(page.as_ref(), &session.id).await;
             return;
         }
 
@@ -164,8 +188,23 @@ impl LoginUseCase {
         const MAX_ERRORS_BEFORE_RECONNECT: u32 = 3;
 
         loop {
-            if tx.is_closed() {
+            let cancelled = if tx.is_closed() {
+                true
+            } else {
+                match self.sessions.get(&session.id).await {
+                    Ok(Some(_)) => false,
+                    Ok(None) => true,
+                    Err(error) => {
+                        tracing::warn!(session_id = %session.id, %error, "failed to check login cancellation");
+                        false
+                    }
+                }
+            };
+            if cancelled {
                 tracing::info!(session_id = %session.id, "login cancelled during cookie polling");
+                session.transition(SessionState::Failed, Some("Login cancelled".into()));
+                close_page(page.as_ref(), &session.id).await;
+                send_or_warn(&tx, LoginEvent::Final(session, vec![]), "cancelled").await;
                 return;
             }
 
@@ -277,9 +316,7 @@ impl LoginUseCase {
 
         // For WaitingForUser that transitioned to Connected/Failed, close page and drop browser.
         // The active session registry is no longer needed for 2FA since login is user-driven.
-        if let Err(e) = page.close().await {
-            tracing::warn!(session_id = %session.id, "failed to close page: {e}");
-        }
+        close_page(page.as_ref(), &session.id).await;
         drop(page);
         drop(browser_session);
 
@@ -360,6 +397,9 @@ mod tests {
     async fn login_connected_path_saves_cookies_and_emits_final_event() {
         let mut sessions = MockSessionRepository::new();
         sessions.expect_create().returning(Ok);
+        sessions
+            .expect_get()
+            .returning(|_| Ok(Some(Session::new("active".into(), "instagram".into()))));
         sessions.expect_update().returning(|_| Ok(()));
 
         let mut cookies = MockCookieRepository::new();
@@ -424,6 +464,40 @@ mod tests {
                 assert!(cookies.is_empty());
             }
             _ => panic!("expected Final"),
+        }
+    }
+
+    #[tokio::test]
+    async fn deleted_session_cancels_login_and_closes_page() {
+        let mut sessions = MockSessionRepository::new();
+        sessions.expect_create().returning(Ok);
+        sessions.expect_get().times(1).returning(|_| Ok(None));
+        sessions.expect_update().returning(|_| Ok(()));
+
+        let mut cookies = MockCookieRepository::new();
+        cookies.expect_save().times(0);
+
+        let mut page = crate::ports::browser::MockPageDriver::new();
+        page.expect_navigate().return_once(|_, _| Ok(()));
+        page.expect_get_cookies().times(0);
+        page.expect_close().times(1).return_once(|| Ok(()));
+        let uc = build_login_use_case(sessions, cookies, happy_browser_with_page(Box::new(page)));
+
+        let (tx, mut rx) = mpsc::channel(8);
+        uc.execute(Platform::Instagram, tx).await;
+
+        assert!(matches!(rx.recv().await, Some(LoginEvent::Started(_))));
+        assert!(matches!(
+            rx.recv().await,
+            Some(LoginEvent::WaitingForUser(_, _))
+        ));
+        match rx.recv().await {
+            Some(LoginEvent::Final(session, cookies)) => {
+                assert_eq!(session.state, SessionState::Failed);
+                assert_eq!(session.message.as_deref(), Some("Login cancelled"));
+                assert!(cookies.is_empty());
+            }
+            other => panic!("expected cancelled final event, got {other:?}"),
         }
     }
 }
