@@ -86,13 +86,7 @@ impl PooledBrowserFactory {
             .iter()
             .enumerate()
             .map(|(i, cdp_url)| {
-                let viewer_url = if i < viewer_urls.len() {
-                    viewer_urls[i].clone()
-                } else if !viewer_urls.is_empty() {
-                    viewer_urls[viewer_urls.len() - 1].clone()
-                } else {
-                    String::new()
-                };
+                let viewer_url = viewer_urls.get(i).cloned().unwrap_or_default();
                 Arc::new(ChromeSlot::new(cdp_url.clone(), viewer_url))
             })
             .collect();
@@ -184,6 +178,21 @@ mod tests {
         let factory = PooledBrowserFactory::new(vec!["http://chrome-0:9223".to_string()], &[]);
 
         assert_eq!(factory.viewer_url().as_deref(), Some(""));
+    }
+
+    #[test]
+    fn missing_viewer_urls_are_not_reused_for_later_slots() {
+        let viewer_urls = vec!["http://localhost:6101/index.html".to_string()];
+        let factory = PooledBrowserFactory::new(
+            vec![
+                "http://chrome-0:9223".to_string(),
+                "http://chrome-1:9223".to_string(),
+            ],
+            &viewer_urls,
+        );
+
+        assert_eq!(factory.slots[0].viewer_url, viewer_urls[0]);
+        assert!(factory.slots[1].viewer_url.is_empty());
     }
 }
 
