@@ -93,10 +93,10 @@ impl GetConnectionStatusUseCase {
     pub async fn execute(&self) -> Result<HashMap<String, bool>> {
         let jar = &self.cookies;
         let fetches = Platform::ALL.iter().map(|p| async move {
-            let c = jar.get(p.as_str(), None).await.unwrap_or_default();
-            (*p, c)
+            let c = jar.get(p.as_str(), None).await?;
+            Ok::<_, crate::ImauthError>((*p, c))
         });
-        let results = futures::future::join_all(fetches).await;
+        let results = futures::future::try_join_all(fetches).await?;
         Ok(results
             .into_iter()
             .map(|(p, c)| (p.as_str().to_string(), p.has_session_cookie(&c)))
@@ -232,5 +232,30 @@ mod tests {
         let map = uc.execute().await.unwrap();
         assert_eq!(map.get("instagram"), Some(&true));
         assert_eq!(map.get("threads"), Some(&false));
+    }
+
+    #[tokio::test]
+    async fn connection_status_propagates_cookie_repository_errors() {
+        for failing_platform in Platform::ALL {
+            let mut repo = MockCookieRepository::new();
+            repo.expect_get().returning(move |platform, _| {
+                if platform == failing_platform.as_str() {
+                    Err(crate::ImauthError::Database(
+                        failing_platform.as_str().into(),
+                    ))
+                } else {
+                    Ok(vec![])
+                }
+            });
+            let uc = GetConnectionStatusUseCase::new(Arc::new(repo));
+
+            let result = uc.execute().await;
+
+            assert!(matches!(
+                result,
+                Err(crate::ImauthError::Database(message))
+                    if message == failing_platform.as_str()
+            ));
+        }
     }
 }
