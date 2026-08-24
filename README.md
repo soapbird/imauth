@@ -10,7 +10,7 @@ cp .env.template .env
 # Edit .env:
 #   - IMAUTH_ENCRYPTION_KEY  (required, 32-byte base64)
 #   - IMAUTH_VIEWER_TOKEN    (required, generate with `openssl rand -hex 32`)
-#   - IMAUTH_API_KEY         (recommended for production)
+#   - IMAUTH_API_KEY         (required, generate with `openssl rand -hex 32`)
 
 # 2. Start all services
 docker compose up -d
@@ -29,14 +29,20 @@ docker compose ps
 > **Note:** All external ports live in the `610X` range to avoid collisions with other services.
 
 The viewer proxy requires `IMAUTH_VIEWER_TOKEN`. A valid token in the generated
-viewer URL bootstraps an `HttpOnly`, `SameSite=Strict` cookie, which authorizes
-the viewer's subsequent assets and WebSocket connection. Proxy access logs are
-disabled so query tokens are not recorded.
+viewer URL is exchanged for an `HttpOnly`, `SameSite=Strict` session cookie and
+immediately redirected to the same path without the token. The cookie authorizes
+subsequent assets and WebSocket connections. Proxy access logs are disabled,
+and viewer responses disable caching and referrers and apply restrictive CSP,
+frame, content-type, and permissions headers.
 
-The viewer is published on `127.0.0.1` by default. Set
-`IMAUTH_NOVNC_BIND_ADDR=0.0.0.0` only when another machine must open the viewer,
-and restrict the port with a firewall or private network. Treat viewer URLs as
-secrets because they contain the configured token.
+The gRPC API and viewer are both published on `127.0.0.1` by default, and
+Compose refuses to start when the API key, viewer token, or encryption key is
+missing. `IMAUTH_BIND_HOST` is the explicit bind override for both published
+ports. For remote viewer access, keep the proxy on loopback and publish it
+through an HTTPS reverse proxy, then set `IMAUTH_VIEWER_SCHEME=https` and
+`IMAUTH_VIEWER_COOKIE_SECURE=Secure`. A direct non-loopback bind remains
+plaintext and must only be used behind a trusted tunnel or equivalent network
+control. Treat the initial viewer URL as a secret until its first redirect.
 
 ### Internal-only Ports (not exposed to host)
 
@@ -51,12 +57,14 @@ All environment variables use the `IMAUTH_` prefix.
 | Variable                       | Default     | Description                                      |
 | ------------------------------ | ----------- | ------------------------------------------------ |
 | `IMAUTH_ENCRYPTION_KEY`        | —           | **Required.** 32-byte base64-encoded AES-256 key |
-| `IMAUTH_API_KEY`               | —           | gRPC API key for client auth                     |
+| `IMAUTH_API_KEY`               | —           | **Required.** gRPC API key for client auth       |
 | `IMAUTH_VIEWER_TOKEN`          | —           | **Required.** Static noVNC viewer access token   |
 | `IMAUTH_HOSTNAME`              | `localhost` | Hostname used in Kasm browser viewer URLs        |
 | `IMAUTH_HOSTPORT`              | `6100`      | Host port mapped to gRPC (50051)                 |
+| `IMAUTH_BIND_HOST`             | `127.0.0.1` | Host address used to publish gRPC and viewer     |
 | `IMAUTH_NOVNC_PORT_0`          | `6101`      | Host port for noVNC viewer                        |
-| `IMAUTH_NOVNC_BIND_ADDR`       | `127.0.0.1` | Host address used to publish the viewer           |
+| `IMAUTH_VIEWER_SCHEME`         | `http`      | Public viewer URL scheme (`https` behind TLS)     |
+| `IMAUTH_VIEWER_COOKIE_SECURE`  | —           | Set to `Secure` behind an HTTPS viewer endpoint  |
 | `IMAUTH_DATA`                  | `../imauth-data` | Host directory for persisted chrome/server data |
 
 
