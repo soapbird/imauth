@@ -4,6 +4,7 @@ export enum Platform {
   THREADS = 2,
   NAVER = 3,
   NOVELPIA = 4,
+  MUNPIA = 5,
 }
 
 export enum AuthStatus {

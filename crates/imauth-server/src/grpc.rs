@@ -41,6 +41,7 @@ fn platform_from_proto(p: i32) -> Option<Platform> {
         ProtoPlatform::Threads => Some(Platform::Threads),
         ProtoPlatform::Naver => Some(Platform::Naver),
         ProtoPlatform::Novelpia => Some(Platform::Novelpia),
+        ProtoPlatform::Munpia => Some(Platform::Munpia),
         ProtoPlatform::Unspecified => None,
     }
 }
@@ -408,6 +409,7 @@ mod tests {
         assert!(matches!(platform_from_proto(2), Some(Platform::Threads)));
         assert!(matches!(platform_from_proto(3), Some(Platform::Naver)));
         assert!(matches!(platform_from_proto(4), Some(Platform::Novelpia)));
+        assert!(matches!(platform_from_proto(5), Some(Platform::Munpia)));
     }
 
     #[test]

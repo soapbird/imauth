@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - `PLATFORM_NOVELPIA` (4): browser-driven login for Novelpia. `LOGINKEY` is the session cookie — Apple sign-in sessions never issue `ISLOGIN`.
+- `PLATFORM_MUNPIA` (5): browser-driven login for Munpia. `TOKEN` is the session cookie. Tag 4 is left for Novelpia.
 
 ## [0.6.0] - 2026-06-29
 

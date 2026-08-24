@@ -10,6 +10,7 @@ class Platform(str, Enum):
     THREADS = "threads"
     NAVER = "naver"
     NOVELPIA = "novelpia"
+    MUNPIA = "munpia"
 
 
 class AuthStatus(str, Enum):
