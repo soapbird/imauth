@@ -11,8 +11,9 @@ use imauth_proto::generated::v1::{
     session_service_server::SessionService, AuthEvent, AuthResponse, AuthStatus as ProtoAuthStatus,
     AuthStatusResponse, CancelRequest, ConnectionStatusMap, Cookie as ProtoCookie, CookieList,
     CredentialInfo, CredentialResponse, DeleteCredentialRequest, Empty, ExportRequest,
-    GetCookiesRequest, GetCredentialRequest, LoginRequest, NetscapeExport, SaveCredentialRequest,
-    StatusRequest, UpdateCookiesRequest, ValidateRequest, ValidationResult,
+    GetCookiesRequest, GetCredentialRequest, LoginRequest, NetscapeExport,
+    Platform as ProtoPlatform, SaveCredentialRequest, StatusRequest, UpdateCookiesRequest,
+    ValidateRequest, ValidationResult,
 };
 use std::pin::Pin;
 use std::sync::Arc;
@@ -35,11 +36,11 @@ fn map_auth_err(err: imauth_core::ImauthError) -> tonic::Status {
 }
 
 fn platform_from_proto(p: i32) -> Option<Platform> {
-    match p {
-        1 => Some(Platform::Instagram),
-        2 => Some(Platform::Threads),
-        3 => Some(Platform::Naver),
-        _ => None,
+    match ProtoPlatform::try_from(p).ok()? {
+        ProtoPlatform::Instagram => Some(Platform::Instagram),
+        ProtoPlatform::Threads => Some(Platform::Threads),
+        ProtoPlatform::Naver => Some(Platform::Naver),
+        ProtoPlatform::Unspecified => None,
     }
 }
 
@@ -72,7 +73,11 @@ fn proto_cookie_from(c: &ProtoCookie) -> Cookie {
         value: c.value.clone(),
         domain: c.domain.clone(),
         path: c.path.clone(),
-        expires: chrono::DateTime::from_timestamp(c.expires, 0),
+        expires: if c.expires == 0 {
+            None
+        } else {
+            chrono::DateTime::from_timestamp(c.expires, 0)
+        },
         http_only: c.http_only,
         secure: c.secure,
     }
@@ -215,15 +220,20 @@ impl SessionService for SessionGrpcService {
             .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
         let cookies: Vec<Cookie> = req.cookies.iter().map(proto_cookie_from).collect();
 
-        let update_result = self
-            .container
+        self.container
             .update_cookies
             .execute(platform, cookies)
-            .await;
-        update_result.map_err(map_auth_err)?;
+            .await
+            .map_err(map_auth_err)?;
+        let stored = self
+            .container
+            .get_cookies
+            .execute(platform, None)
+            .await
+            .map_err(map_auth_err)?;
 
         Ok(Response::new(CookieList {
-            cookies: req.cookies,
+            cookies: stored.iter().map(cookie_to_proto).collect(),
         }))
     }
 
@@ -457,6 +467,16 @@ mod tests {
         c.expires = None;
         let p = cookie_to_proto(&c);
         assert_eq!(p.expires, 0);
+    }
+
+    #[test]
+    fn proto_cookie_from_treats_zero_expires_as_session_cookie() {
+        let mut proto = cookie_to_proto(&sample_cookie());
+        proto.expires = 0;
+
+        let cookie = proto_cookie_from(&proto);
+
+        assert!(cookie.expires.is_none());
     }
 
     #[test]

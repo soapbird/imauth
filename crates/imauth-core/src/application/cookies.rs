@@ -40,6 +40,7 @@ impl UpdateCookiesUseCase {
     }
 
     pub async fn execute(&self, platform: Platform, cookies: Vec<Cookie>) -> Result<()> {
+        let cookies = platform.filter_cookies(cookies);
         self.cookies.save(platform.as_str(), &cookies).await
     }
 }
@@ -135,6 +136,29 @@ mod tests {
             .await
             .unwrap();
         assert!(out.is_empty());
+    }
+
+    #[tokio::test]
+    async fn update_cookies_discards_domains_outside_the_platform() {
+        let mut repo = MockCookieRepository::new();
+        repo.expect_save()
+            .withf(|platform, cookies| {
+                platform == "instagram"
+                    && cookies.len() == 1
+                    && cookies[0].domain == ".instagram.com"
+            })
+            .return_once(|_, _| Ok(()));
+        let uc = UpdateCookiesUseCase::new(Arc::new(repo));
+
+        uc.execute(
+            Platform::Instagram,
+            vec![
+                cookie("sessionid", ".instagram.com", None),
+                cookie("foreign", ".example.com", None),
+            ],
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
