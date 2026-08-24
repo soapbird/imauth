@@ -37,7 +37,6 @@ class AuthEvent(BaseModel):
     requires_input: bool = False
     input_type: str = ""
     cookies: list[Cookie] = Field(default_factory=list)
-    screenshot: bytes = b""
     viewer_url: str = ""
 
 

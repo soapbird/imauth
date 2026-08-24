@@ -24,9 +24,8 @@ from imauth.models import Platform
 
 
 def _emit(obj) -> None:
-    """Print a pydantic model / dict as one JSON line (screenshot bytes dropped)."""
     if hasattr(obj, "model_dump"):
-        obj = obj.model_dump(exclude={"screenshot"})
+        obj = obj.model_dump()
     print(json.dumps(obj, ensure_ascii=False, default=str))
 
 

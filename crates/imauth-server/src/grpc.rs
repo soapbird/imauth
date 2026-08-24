@@ -91,7 +91,6 @@ fn auth_event_from(session: &Session) -> AuthEvent {
         requires_input: session.requires_input,
         input_type: session.input_type.clone().unwrap_or_default(),
         cookies: vec![],
-        screenshot: vec![],
         viewer_url: String::new(),
     }
 }
@@ -511,7 +510,6 @@ mod tests {
         assert!(evt.requires_input);
         assert_eq!(evt.input_type, "viewer_url");
         assert!(evt.cookies.is_empty());
-        assert!(evt.screenshot.is_empty());
         assert!(evt.viewer_url.is_empty());
     }
 

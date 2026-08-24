@@ -28,7 +28,7 @@ message AuthEvent {
   bool requires_input = 4;
   string input_type = 5;   // "viewer_url"
   repeated Cookie cookies = 6;
-  bytes screenshot = 7;
+  reserved 7;
   string viewer_url = 8;   // Browser viewer URL for user to interact with the browser
 }
 

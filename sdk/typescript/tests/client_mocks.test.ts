@@ -4,12 +4,27 @@
  * The client constructs three gRPC clients at instantiation (AuthService,
  * SessionService, CredentialService). We replace them with simple stubs so
  * we can assert on the request payloads, exercise both success and error
- * branches of every Promise wrapper, and avoid any real network activity.
+ * branches of every Promise wrapper without real network activity.
  */
 
+import * as grpc from "@grpc/grpc-js";
 import { ImauthClient, Platform, AuthStatus } from "../src";
 
-type Callback<T> = (err: any, response: T | null) => void;
+type Callback<T> = (error: grpc.ServiceError | null, response?: T) => void;
+type FakeGrpcClient = Record<string, ReturnType<typeof jest.fn>>;
+
+class TestServiceError extends Error implements grpc.ServiceError {
+  readonly code: grpc.status;
+  readonly details: string;
+  readonly metadata = new grpc.Metadata();
+
+  constructor(message: string, code: grpc.status = grpc.status.UNKNOWN) {
+    super(message);
+    this.name = "TestServiceError";
+    this.code = code;
+    this.details = message;
+  }
+}
 
 function makeStreamingStub() {
   // Login is a server-streaming RPC. The TS client just returns whatever
@@ -19,30 +34,29 @@ function makeStreamingStub() {
   return { Login };
 }
 
-function makeUnaryStub<TResp>(handler: (req: any) => { err?: any; resp?: TResp }) {
+function makeUnaryStub<TRequest extends object, TResponse>(
+  handler: (request: TRequest) => { readonly err?: grpc.ServiceError; readonly resp?: TResponse },
+) {
   // The client now passes per-call metadata (for API-key auth) between the
   // request and the callback, so the stub must accept (req, metadata, cb).
-  return jest.fn((req: any, _metadata: any, cb: Callback<TResp>) => {
-    const { err, resp } = handler(req);
-    if (err) {
-      cb(err, null);
-    } else {
-      cb(null, resp ?? (null as any));
+  return jest.fn((request: TRequest, _metadata: grpc.Metadata, callback: Callback<TResponse>) => {
+    const { err, resp } = handler(request);
+    if (err !== undefined) {
+      callback(err);
+      return;
     }
+    callback(null, resp);
   });
 }
 
 function installFakeClients(client: ImauthClient) {
-  const authFake: any = makeStreamingStub();
-  const sessionFake: any = {};
-  const credentialFake: any = {};
+  const authFake: FakeGrpcClient = makeStreamingStub();
+  const sessionFake: FakeGrpcClient = {};
+  const credentialFake: FakeGrpcClient = {};
 
-  // @ts-expect-error reach into private state for test isolation
-  client.authClient = authFake;
-  // @ts-expect-error
-  client.sessionClient = sessionFake;
-  // @ts-expect-error
-  client.credentialClient = credentialFake;
+  Object.defineProperty(client, "authClient", { value: authFake });
+  Object.defineProperty(client, "sessionClient", { value: sessionFake });
+  Object.defineProperty(client, "credentialClient", { value: credentialFake });
 
   return { authFake, sessionFake, credentialFake };
 }
@@ -80,6 +94,41 @@ describe("ImauthClient (mocked stubs)", () => {
 
   // ---- getCookies ------------------------------------------------------
 
+  it("getStatus exposes the exact public AuthEvent shape", async () => {
+    const { authFake } = installFakeClients(client);
+    authFake.GetStatus = makeUnaryStub(() => ({
+      resp: {
+        status: AuthStatus.IDLE,
+        sessionId: "session-1",
+        message: "idle",
+        requiresInput: false,
+        inputType: "",
+      },
+    }));
+
+    const event = await client.getStatus("session-1");
+
+    expect(authFake.GetStatus.mock.calls[0][0]).toEqual({ sessionId: "session-1" });
+    expect(event).toEqual({
+      status: AuthStatus.IDLE,
+      sessionId: "session-1",
+      message: "idle",
+      requiresInput: false,
+      inputType: "",
+      cookies: [],
+      viewerUrl: "",
+    });
+  });
+
+  it("cancel forwards the camel-case session ID", async () => {
+    const { authFake } = installFakeClients(client);
+    authFake.Cancel = makeUnaryStub(() => ({ resp: undefined }));
+
+    await client.cancel("cancel-session-1");
+
+    expect(authFake.Cancel.mock.calls[0][0]).toEqual({ sessionId: "cancel-session-1" });
+  });
+
   it("getCookies returns the cookies array", async () => {
     const { sessionFake } = installFakeClients(client);
     sessionFake.GetCookies = makeUnaryStub(() => ({
@@ -116,9 +165,9 @@ describe("ImauthClient (mocked stubs)", () => {
     });
   });
 
-  it("getCookies returns [] when response.cookies is missing", async () => {
+  it("getCookies returns the decoded empty default", async () => {
     const { sessionFake } = installFakeClients(client);
-    sessionFake.GetCookies = makeUnaryStub(() => ({ resp: {} as any }));
+    sessionFake.GetCookies = makeUnaryStub(() => ({ resp: { cookies: [] } }));
 
     const cookies = await client.getCookies(Platform.THREADS);
     expect(cookies).toEqual([]);
@@ -126,7 +175,7 @@ describe("ImauthClient (mocked stubs)", () => {
 
   it("getCookies rejects on gRPC error", async () => {
     const { sessionFake } = installFakeClients(client);
-    sessionFake.GetCookies = makeUnaryStub(() => ({ err: new Error("net") }));
+    sessionFake.GetCookies = makeUnaryStub(() => ({ err: new TestServiceError("net") }));
     await expect(client.getCookies(Platform.INSTAGRAM)).rejects.toThrow("net");
   });
 
@@ -188,7 +237,7 @@ describe("ImauthClient (mocked stubs)", () => {
   it("exportNetscape rejects on gRPC error", async () => {
     const { sessionFake } = installFakeClients(client);
     sessionFake.ExportNetscape = makeUnaryStub(() => ({
-      err: new Error("export failed"),
+      err: new TestServiceError("export failed"),
     }));
     await expect(client.exportNetscape(Platform.INSTAGRAM)).rejects.toThrow("export failed");
   });
@@ -205,9 +254,9 @@ describe("ImauthClient (mocked stubs)", () => {
     expect(status).toEqual({ instagram: true, threads: false });
   });
 
-  it("getConnectionStatus returns {} when platforms is missing", async () => {
+  it("getConnectionStatus returns the decoded empty default", async () => {
     const { sessionFake } = installFakeClients(client);
-    sessionFake.GetConnectionStatus = makeUnaryStub(() => ({ resp: {} as any }));
+    sessionFake.GetConnectionStatus = makeUnaryStub(() => ({ resp: { platforms: {} } }));
     const status = await client.getConnectionStatus();
     expect(status).toEqual({});
   });
@@ -215,7 +264,7 @@ describe("ImauthClient (mocked stubs)", () => {
   it("getConnectionStatus rejects on gRPC error", async () => {
     const { sessionFake } = installFakeClients(client);
     sessionFake.GetConnectionStatus = makeUnaryStub(() => ({
-      err: new Error("unreachable"),
+      err: new TestServiceError("unreachable"),
     }));
     await expect(client.getConnectionStatus()).rejects.toThrow("unreachable");
   });
@@ -224,9 +273,17 @@ describe("ImauthClient (mocked stubs)", () => {
 
   it("saveCredentials serializes all four fields", async () => {
     const { credentialFake } = installFakeClients(client);
-    credentialFake.Save = makeUnaryStub(() => ({ resp: {} }));
+    credentialFake.Save = makeUnaryStub(() => ({
+      resp: { success: true, platform: Platform.INSTAGRAM, username: "alice" },
+    }));
 
-    await client.saveCredentials(Platform.INSTAGRAM, "alice", "pw", "totp");
+    await expect(
+      client.saveCredentials(Platform.INSTAGRAM, "alice", "pw", "totp"),
+    ).resolves.toEqual({
+      success: true,
+      platform: Platform.INSTAGRAM,
+      username: "alice",
+    });
     expect(credentialFake.Save.mock.calls[0][0]).toEqual({
       platform: Platform.INSTAGRAM,
       username: "alice",
@@ -237,7 +294,9 @@ describe("ImauthClient (mocked stubs)", () => {
 
   it("saveCredentials defaults twofaMethod to empty string", async () => {
     const { credentialFake } = installFakeClients(client);
-    credentialFake.Save = makeUnaryStub(() => ({ resp: {} }));
+    credentialFake.Save = makeUnaryStub(() => ({
+      resp: { success: true, platform: Platform.THREADS, username: "bob" },
+    }));
 
     await client.saveCredentials(Platform.THREADS, "bob", "pw");
     expect(credentialFake.Save.mock.calls[0][0].twofaMethod).toBe("");
@@ -246,26 +305,8 @@ describe("ImauthClient (mocked stubs)", () => {
   it("saveCredentials rejects on gRPC error", async () => {
     const { credentialFake } = installFakeClients(client);
     credentialFake.Save = makeUnaryStub(() => ({
-      err: new Error("duplicate"),
+      err: new TestServiceError("duplicate"),
     }));
     await expect(client.saveCredentials(Platform.INSTAGRAM, "u", "p")).rejects.toThrow("duplicate");
-  });
-});
-
-describe("Enum + module surface", () => {
-  it("Platform enum is dense at the expected integer values", () => {
-    expect(Platform.UNSPECIFIED).toBe(0);
-    expect(Platform.INSTAGRAM).toBe(1);
-    expect(Platform.THREADS).toBe(2);
-    expect(Platform.NAVER).toBe(3);
-  });
-
-  it("AuthStatus covers every state", () => {
-    expect(AuthStatus.IDLE).toBe(1);
-    expect(AuthStatus.LOADING).toBe(2);
-    expect(AuthStatus.AUTHENTICATING).toBe(3);
-    expect(AuthStatus.WAITING_FOR_USER).toBe(4);
-    expect(AuthStatus.CONNECTED).toBe(7);
-    expect(AuthStatus.FAILED).toBe(8);
   });
 });

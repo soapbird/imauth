@@ -1,27 +1,21 @@
 import * as grpc from "@grpc/grpc-js";
-import * as protoLoader from "@grpc/proto-loader";
-import * as path from "node:path";
-import type { AuthEvent, Cookie, CredentialInfo, Platform, SessionValidation } from "./types";
+import { createGrpcClients } from "./grpc_clients";
+import type { AuthGrpcClient, CredentialGrpcClient, SessionGrpcClient } from "./grpc_contracts";
+import type {
+  AuthEvent,
+  Cookie,
+  CredentialInfo,
+  CredentialSaveResult,
+  Platform,
+  SessionValidation,
+} from "./types";
 
-const PROTO_ROOT = path.join(__dirname, "../proto");
-
-const packageDefinition = protoLoader.loadSync(
-  [
-    path.join(PROTO_ROOT, "imauth/v1/common.proto"),
-    path.join(PROTO_ROOT, "imauth/v1/auth.proto"),
-    path.join(PROTO_ROOT, "imauth/v1/session.proto"),
-    path.join(PROTO_ROOT, "imauth/v1/credential.proto"),
-  ],
-  {
-    keepCase: false,
-    longs: Number,
-    defaults: true,
-    oneofs: true,
-    includeDirs: [PROTO_ROOT],
-  },
-);
-
-const proto = grpc.loadPackageDefinition(packageDefinition) as any;
+class MissingGrpcResponseError extends Error {
+  constructor(readonly method: string) {
+    super(`gRPC method returned no response: ${method}`);
+    this.name = "MissingGrpcResponseError";
+  }
+}
 
 export interface ImauthClientOptions {
   /** Bearer API key to attach as `authorization: Bearer <key>` on every call. */
@@ -33,10 +27,10 @@ export interface ImauthClientOptions {
 }
 
 export class ImauthClient {
-  private authClient: any;
-  private sessionClient: any;
-  private credentialClient: any;
-  private apiKey?: string;
+  private readonly authClient: AuthGrpcClient;
+  private readonly sessionClient: SessionGrpcClient;
+  private readonly credentialClient: CredentialGrpcClient;
+  private readonly apiKey?: string;
 
   constructor(serverAddress: string = "localhost:6100", options: ImauthClientOptions = {}) {
     this.apiKey = options.apiKey;
@@ -44,28 +38,14 @@ export class ImauthClient {
       options.rootCert === undefined
         ? grpc.credentials.createInsecure()
         : grpc.credentials.createSsl(Buffer.from(options.rootCert));
-
-    if (options.serverName === undefined) {
-      this.authClient = new proto.imauth.v1.AuthService(serverAddress, credentials);
-      this.sessionClient = new proto.imauth.v1.SessionService(serverAddress, credentials);
-      this.credentialClient = new proto.imauth.v1.CredentialService(serverAddress, credentials);
-      return;
-    }
-
-    const channelOptions = {
-      "grpc.ssl_target_name_override": options.serverName,
-    };
-    this.authClient = new proto.imauth.v1.AuthService(serverAddress, credentials, channelOptions);
-    this.sessionClient = new proto.imauth.v1.SessionService(
-      serverAddress,
-      credentials,
-      channelOptions,
-    );
-    this.credentialClient = new proto.imauth.v1.CredentialService(
-      serverAddress,
-      credentials,
-      channelOptions,
-    );
+    const channelOptions =
+      options.serverName === undefined
+        ? undefined
+        : { "grpc.ssl_target_name_override": options.serverName };
+    const clients = createGrpcClients(serverAddress, credentials, channelOptions);
+    this.authClient = clients.auth;
+    this.sessionClient = clients.session;
+    this.credentialClient = clients.credential;
   }
 
   /** Build per-call metadata including the bearer API key (if set). */
@@ -85,34 +65,33 @@ export class ImauthClient {
 
   getStatus(sessionId: string): Promise<AuthEvent | null> {
     return new Promise((resolve, reject) => {
-      this.authClient.GetStatus(
-        { session_id: sessionId },
-        this.buildMetadata(),
-        (err: any, response: any) => {
-          if (err) {
-            if (err.code === grpc.status.NOT_FOUND) resolve(null);
-            else reject(err);
-          } else {
-            resolve({
-              status: response.status,
-              sessionId: response.sessionId,
-              message: response.message,
-              requiresInput: response.requiresInput,
-              inputType: response.inputType,
-              cookies: [],
-              screenshot: Buffer.alloc(0),
-              viewerUrl: "",
-            });
-          }
-        },
-      );
+      this.authClient.GetStatus({ sessionId }, this.buildMetadata(), (err, response) => {
+        if (err !== null) {
+          if (err.code === grpc.status.NOT_FOUND) resolve(null);
+          else reject(err);
+          return;
+        }
+        if (response === undefined) {
+          reject(new MissingGrpcResponseError("AuthService.GetStatus"));
+          return;
+        }
+        resolve({
+          status: response.status,
+          sessionId: response.sessionId,
+          message: response.message,
+          requiresInput: response.requiresInput,
+          inputType: response.inputType,
+          cookies: [],
+          viewerUrl: "",
+        });
+      });
     });
   }
 
   cancel(sessionId: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.authClient.Cancel({ session_id: sessionId }, this.buildMetadata(), (err: any) => {
-        if (err && err.code !== grpc.status.NOT_FOUND) reject(err);
+      this.authClient.Cancel({ sessionId }, this.buildMetadata(), (err) => {
+        if (err !== null && err.code !== grpc.status.NOT_FOUND) reject(err);
         else resolve();
       });
     });
@@ -120,23 +99,30 @@ export class ImauthClient {
 
   // --- session ------------------------------------------------------------
 
-  getCookies(platform: Platform, domains: string[] = []): Promise<Cookie[]> {
+  getCookies(platform: Platform, domains: readonly string[] = []): Promise<readonly Cookie[]> {
     return new Promise((resolve, reject) => {
       this.sessionClient.GetCookies(
         { platform, domains },
         this.buildMetadata(),
-        (err: any, response: any) => {
-          if (err) reject(err);
-          else resolve(response.cookies || []);
+        (err, response) => {
+          if (err !== null) {
+            reject(err);
+            return;
+          }
+          if (response === undefined) {
+            reject(new MissingGrpcResponseError("SessionService.GetCookies"));
+            return;
+          }
+          resolve(response.cookies);
         },
       );
     });
   }
 
-  updateCookies(platform: Platform, cookies: Cookie[]): Promise<void> {
+  updateCookies(platform: Platform, cookies: readonly Cookie[]): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.sessionClient.UpdateCookies({ platform, cookies }, this.buildMetadata(), (err: any) => {
-        if (err) reject(err);
+      this.sessionClient.UpdateCookies({ platform, cookies }, this.buildMetadata(), (err) => {
+        if (err !== null) reject(err);
         else resolve();
       });
     });
@@ -144,14 +130,17 @@ export class ImauthClient {
 
   exportNetscape(platform: Platform): Promise<string> {
     return new Promise((resolve, reject) => {
-      this.sessionClient.ExportNetscape(
-        { platform },
-        this.buildMetadata(),
-        (err: any, response: any) => {
-          if (err) reject(err);
-          else resolve(response.content);
-        },
-      );
+      this.sessionClient.ExportNetscape({ platform }, this.buildMetadata(), (err, response) => {
+        if (err !== null) {
+          reject(err);
+          return;
+        }
+        if (response === undefined) {
+          reject(new MissingGrpcResponseError("SessionService.ExportNetscape"));
+          return;
+        }
+        resolve(response.content);
+      });
     });
   }
 
@@ -161,33 +150,33 @@ export class ImauthClient {
 
   validateSessionDetails(platform: Platform): Promise<SessionValidation> {
     return new Promise((resolve, reject) => {
-      this.sessionClient.ValidateSession(
-        { platform },
-        this.buildMetadata(),
-        (err: any, response: any) => {
-          if (err) reject(err);
-          else {
-            resolve({
-              valid: Boolean(response.valid),
-              expiresAt: Number(response.expiresAt),
-              sessionCookieName: response.sessionCookieName,
-            });
-          }
-        },
-      );
+      this.sessionClient.ValidateSession({ platform }, this.buildMetadata(), (err, response) => {
+        if (err !== null) {
+          reject(err);
+          return;
+        }
+        if (response === undefined) {
+          reject(new MissingGrpcResponseError("SessionService.ValidateSession"));
+          return;
+        }
+        resolve(response);
+      });
     });
   }
 
-  getConnectionStatus(): Promise<Record<string, boolean>> {
+  getConnectionStatus(): Promise<Readonly<Record<string, boolean>>> {
     return new Promise((resolve, reject) => {
-      this.sessionClient.GetConnectionStatus(
-        {},
-        this.buildMetadata(),
-        (err: any, response: any) => {
-          if (err) reject(err);
-          else resolve(response.platforms || {});
-        },
-      );
+      this.sessionClient.GetConnectionStatus({}, this.buildMetadata(), (err, response) => {
+        if (err !== null) {
+          reject(err);
+          return;
+        }
+        if (response === undefined) {
+          reject(new MissingGrpcResponseError("SessionService.GetConnectionStatus"));
+          return;
+        }
+        resolve(response.platforms);
+      });
     });
   }
 
@@ -198,7 +187,7 @@ export class ImauthClient {
     username: string,
     password: string,
     twofaMethod?: string,
-  ): Promise<any> {
+  ): Promise<CredentialSaveResult> {
     return new Promise((resolve, reject) => {
       this.credentialClient.Save(
         {
@@ -208,9 +197,16 @@ export class ImauthClient {
           twofaMethod: twofaMethod || "",
         },
         this.buildMetadata(),
-        (err: any, response: any) => {
-          if (err) reject(err);
-          else resolve(response);
+        (err, response) => {
+          if (err !== null) {
+            reject(err);
+            return;
+          }
+          if (response === undefined) {
+            reject(new MissingGrpcResponseError("CredentialService.Save"));
+            return;
+          }
+          resolve(response);
         },
       );
     });
@@ -218,26 +214,25 @@ export class ImauthClient {
 
   getCredentials(platform: Platform): Promise<CredentialInfo | null> {
     return new Promise((resolve, reject) => {
-      this.credentialClient.Get({ platform }, this.buildMetadata(), (err: any, response: any) => {
-        if (err) {
+      this.credentialClient.Get({ platform }, this.buildMetadata(), (err, response) => {
+        if (err !== null) {
           if (err.code === grpc.status.NOT_FOUND) resolve(null);
           else reject(err);
-        } else {
-          resolve({
-            platform: response.platform,
-            username: response.username,
-            hasPassword: response.hasPassword,
-            twofaMethod: response.twofaMethod || "",
-          });
+          return;
         }
+        if (response === undefined) {
+          reject(new MissingGrpcResponseError("CredentialService.Get"));
+          return;
+        }
+        resolve(response);
       });
     });
   }
 
   deleteCredentials(platform: Platform): Promise<boolean> {
     return new Promise((resolve, reject) => {
-      this.credentialClient.Delete({ platform }, this.buildMetadata(), (err: any) => {
-        if (err) {
+      this.credentialClient.Delete({ platform }, this.buildMetadata(), (err) => {
+        if (err !== null) {
           if (err.code === grpc.status.NOT_FOUND) resolve(false);
           else reject(err);
         } else resolve(true);
@@ -246,8 +241,8 @@ export class ImauthClient {
   }
 
   close(): void {
-    grpc.closeClient(this.authClient);
-    grpc.closeClient(this.sessionClient);
-    grpc.closeClient(this.credentialClient);
+    this.authClient.close();
+    this.sessionClient.close();
+    this.credentialClient.close();
   }
 }

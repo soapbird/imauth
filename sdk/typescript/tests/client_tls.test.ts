@@ -4,38 +4,27 @@ type JestMock = ReturnType<typeof jest.fn>;
 
 declare global {
   var imauthTlsMocks: {
-    readonly authService: JestMock;
-    readonly closeClient: JestMock;
-    readonly credentialService: JestMock;
-    readonly sessionService: JestMock;
+    readonly clientClose: JestMock;
+    readonly clientConstructor: JestMock;
   };
 }
 
 jest.mock("@grpc/grpc-js", () => {
   const actual = jest.requireActual<typeof import("@grpc/grpc-js")>("@grpc/grpc-js");
-  const authService = jest.fn();
-  const closeClient = jest.fn();
-  const credentialService = jest.fn();
-  const sessionService = jest.fn();
+  const clientClose = jest.fn();
+  const clientConstructor = jest.fn(() => ({
+    close: clientClose,
+    makeServerStreamRequest: jest.fn(),
+    makeUnaryRequest: jest.fn(),
+  }));
   globalThis.imauthTlsMocks = {
-    authService,
-    closeClient,
-    credentialService,
-    sessionService,
+    clientClose,
+    clientConstructor,
   };
 
   return {
     ...actual,
-    closeClient,
-    loadPackageDefinition: jest.fn(() => ({
-      imauth: {
-        v1: {
-          AuthService: authService,
-          CredentialService: credentialService,
-          SessionService: sessionService,
-        },
-      },
-    })),
+    Client: clientConstructor,
   };
 });
 
@@ -58,20 +47,28 @@ describe("ImauthClient transport credentials", () => {
 
     // Then: every stub receives the one insecure credential object.
     expect(createInsecure).toHaveBeenCalledTimes(1);
-    expect(globalThis.imauthTlsMocks.authService).toHaveBeenCalledWith(
+    expect(globalThis.imauthTlsMocks.clientConstructor).toHaveBeenCalledTimes(3);
+    expect(globalThis.imauthTlsMocks.clientConstructor).toHaveBeenNthCalledWith(
+      1,
       "localhost:6100",
       insecureCredentials,
+      undefined,
     );
-    expect(globalThis.imauthTlsMocks.sessionService).toHaveBeenCalledWith(
+    expect(globalThis.imauthTlsMocks.clientConstructor).toHaveBeenNthCalledWith(
+      2,
       "localhost:6100",
       insecureCredentials,
+      undefined,
     );
-    expect(globalThis.imauthTlsMocks.credentialService).toHaveBeenCalledWith(
+    expect(globalThis.imauthTlsMocks.clientConstructor).toHaveBeenNthCalledWith(
+      3,
       "localhost:6100",
       insecureCredentials,
+      undefined,
     );
 
     client.close();
+    expect(globalThis.imauthTlsMocks.clientClose).toHaveBeenCalledTimes(3);
   });
 
   it("uses one TLS credential object and the configured server name for every stub", () => {
@@ -92,21 +89,10 @@ describe("ImauthClient transport credentials", () => {
 
     // Then: every stub shares the TLS credentials and server-name override.
     expect(createSsl).toHaveBeenCalledWith(Buffer.from(rootCert));
-    expect(globalThis.imauthTlsMocks.authService).toHaveBeenCalledWith(
-      "imauth.internal:6100",
-      tlsCredentials,
-      channelOptions,
-    );
-    expect(globalThis.imauthTlsMocks.sessionService).toHaveBeenCalledWith(
-      "imauth.internal:6100",
-      tlsCredentials,
-      channelOptions,
-    );
-    expect(globalThis.imauthTlsMocks.credentialService).toHaveBeenCalledWith(
-      "imauth.internal:6100",
-      tlsCredentials,
-      channelOptions,
-    );
+    expect(globalThis.imauthTlsMocks.clientConstructor).toHaveBeenCalledTimes(3);
+    for (const invocation of globalThis.imauthTlsMocks.clientConstructor.mock.calls) {
+      expect(invocation).toEqual(["imauth.internal:6100", tlsCredentials, channelOptions]);
+    }
 
     client.close();
   });
@@ -122,18 +108,10 @@ describe("ImauthClient transport credentials", () => {
 
     // Then: TLS is enabled without adding a target-name override.
     expect(createSsl).toHaveBeenCalledWith(Buffer.from(rootCert));
-    expect(globalThis.imauthTlsMocks.authService).toHaveBeenCalledWith(
-      "imauth.internal:6100",
-      tlsCredentials,
-    );
-    expect(globalThis.imauthTlsMocks.sessionService).toHaveBeenCalledWith(
-      "imauth.internal:6100",
-      tlsCredentials,
-    );
-    expect(globalThis.imauthTlsMocks.credentialService).toHaveBeenCalledWith(
-      "imauth.internal:6100",
-      tlsCredentials,
-    );
+    expect(globalThis.imauthTlsMocks.clientConstructor).toHaveBeenCalledTimes(3);
+    for (const invocation of globalThis.imauthTlsMocks.clientConstructor.mock.calls) {
+      expect(invocation).toEqual(["imauth.internal:6100", tlsCredentials, undefined]);
+    }
 
     client.close();
   });

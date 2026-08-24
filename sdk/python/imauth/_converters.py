@@ -63,7 +63,6 @@ def auth_event_from_proto(event) -> AuthEvent:
         requires_input=event.requires_input,
         input_type=event.input_type,
         cookies=[cookie_from_proto(c) for c in event.cookies],
-        screenshot=bytes(event.screenshot),
         viewer_url=getattr(event, "viewer_url", ""),
     )
 

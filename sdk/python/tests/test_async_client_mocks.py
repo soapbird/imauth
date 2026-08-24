@@ -66,7 +66,6 @@ def test_async_login_streams_events():
         requires_input=False,
         input_type="",
         cookies=[_stub_cookie()],
-        screenshot=b"",
     )
     fake_stub.Login = MagicMock(return_value=_AsyncIter([event]))
 

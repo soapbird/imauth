@@ -16,35 +16,40 @@ export enum AuthStatus {
 }
 
 export interface Cookie {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  expires: number;
-  httpOnly: boolean;
-  secure: boolean;
+  readonly name: string;
+  readonly value: string;
+  readonly domain: string;
+  readonly path: string;
+  readonly expires: number;
+  readonly httpOnly: boolean;
+  readonly secure: boolean;
 }
 
 export interface AuthEvent {
-  status: AuthStatus;
-  sessionId: string;
-  message: string;
-  requiresInput: boolean;
-  inputType: string;
-  cookies: Cookie[];
-  screenshot: Buffer;
-  viewerUrl: string;
+  readonly status: AuthStatus;
+  readonly sessionId: string;
+  readonly message: string;
+  readonly requiresInput: boolean;
+  readonly inputType: string;
+  readonly cookies: readonly Cookie[];
+  readonly viewerUrl: string;
 }
 
 export interface SessionValidation {
-  valid: boolean;
-  expiresAt: number;
-  sessionCookieName: string;
+  readonly valid: boolean;
+  readonly expiresAt: number;
+  readonly sessionCookieName: string;
 }
 
 export interface CredentialInfo {
-  platform: Platform;
-  username: string;
-  hasPassword: boolean;
-  twofaMethod: string;
+  readonly platform: Platform;
+  readonly username: string;
+  readonly hasPassword: boolean;
+  readonly twofaMethod: string;
+}
+
+export interface CredentialSaveResult {
+  readonly success: boolean;
+  readonly platform: Platform;
+  readonly username: string;
 }

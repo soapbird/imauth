@@ -1,6 +1,6 @@
 """Unit tests for imauth Python SDK."""
 
-from imauth.models import AuthStatus, Cookie, Platform
+from imauth.models import AuthEvent, AuthStatus, Cookie, Platform
 
 
 def test_platform_enum():
@@ -20,3 +20,17 @@ def test_cookie_model():
     assert cookie.name == "sessionid"
     assert cookie.path == "/"
     assert not cookie.http_only
+
+
+def test_auth_event_public_shape_matches_contract():
+    event = AuthEvent(status=AuthStatus.IDLE)
+
+    assert set(event.model_dump()) == {
+        "cookies",
+        "input_type",
+        "message",
+        "requires_input",
+        "session_id",
+        "status",
+        "viewer_url",
+    }

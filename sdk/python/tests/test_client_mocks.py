@@ -56,7 +56,6 @@ def _stub_auth_event(status: int, message: str = "ok") -> types.SimpleNamespace:
         requires_input=False,
         input_type="",
         cookies=[_stub_cookie()],
-        screenshot=b"",
     )
 
 
