@@ -6,7 +6,7 @@
 //!  - `application`: use cases that coordinate workflows through ports, plus the
 //!    `AppContainer` composition root.
 //!  - `adapters`: concrete implementations of ports (sqlite, chromiumoxide,
-//!    aes_gcm, nats, fs, in-memory).
+//!    aes_gcm, fs, in-memory).
 //!
 //! The boundary direction is `adapters → ports → application → domain` and is
 //! enforced by review (see CLAUDE.md). The `config` and `error` modules are

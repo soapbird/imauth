@@ -25,7 +25,6 @@ docker compose ps
 | --------- | ------------------- | ---------------------------- | -------------------- |
 | **6100**  | `server:50051`      | gRPC API                     | ✅ Always            |
 | **6101**  | `chrome-0-proxy:8080` | Kasm browser viewer (loopback by default) | ✅ User-driven login |
-| 9090      | `server:9090`       | Prometheus metrics           | Optional             |
 
 > **Note:** All external ports live in the `610X` range to avoid collisions with other services.
 
@@ -153,6 +152,43 @@ uvx --from "$WHL" imauth --help                         # full command list
 ```bash
 npm install   # from sdk/typescript/
 ```
+
+## Provider onboarding recorder
+
+Record a real login surface before adding a provider that imauth does not yet
+support. The default opens an isolated, headed Chromium browser:
+
+```bash
+./scripts/provider-record \
+  --url https://nid.naver.com/nidlogin.login \
+  --domain naver.com
+```
+
+The installed Rust CLI exposes the same command and embeds the recorder, so a
+source checkout is not required:
+
+```bash
+imauth provider record --url <https-login-url> --domain <provider-domain>
+```
+
+Node.js and npm are required. On first use, the CLI creates a versioned user
+cache with Playwright 1.62.1 and Chromium. This cache is outside the repository.
+Use `checkpoint <name>` while exercising login states, then `finish`; `abort`
+keeps an incomplete capture. Pass `--cdp-url http://127.0.0.1:9222` to observe
+an existing imauth/Chrome session. `--headless --auto-finish` is available for
+non-interactive smoke checks.
+
+Records are written to `datasource/records/<domain>-<timestamp>/`. The standard
+record is deliberately small and sanitized-only: HTML checkpoints,
+cookie/storage state, HAR, console warnings/errors, and a first-party JavaScript
+URL/hash inventory. Automatic smoke checks keep one final checkpoint.
+
+Use `--deep` only when that evidence cannot explain an authentication bug. Deep
+mode additionally records raw values, screenshots, JavaScript bodies, and a
+Playwright trace under the gitignored `raw/` directory. Only consider sanitized
+artifacts, the manifest, report, and redaction report for Git, and only when
+`readyForGit` is true after manual review. Enter credentials and 2FA values only
+in the browser.
 
 ## Development
 
