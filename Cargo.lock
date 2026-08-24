@@ -1296,6 +1296,7 @@ dependencies = [
  "imauth-core",
  "imauth-proto",
  "rustls",
+ "sqlx",
  "subtle",
  "tokio",
  "tokio-stream",
