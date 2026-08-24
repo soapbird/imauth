@@ -22,11 +22,19 @@ Thumbs.db
 .imauth/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
+.coverage
+coverage.xml
+htmlcov/
 
 # Python SDK
 sdk/python/**/__pycache__/
 sdk/python/*.egg-info/
 sdk/python/.pytest_cache/
+sdk/python/.ruff_cache/
+sdk/python/.mypy_cache/
+sdk/python/.basedpyright/
 sdk/python/dist/
 sdk/python/build/
 sdk/python/uv.lock
@@ -34,12 +42,15 @@ sdk/python/uv.lock
 # TypeScript SDK
 sdk/typescript/node_modules/
 sdk/typescript/dist/
+sdk/typescript/coverage/
 sdk/typescript/*.log
 
 # Secrets
 .env
 
 # Local tool directories
+.codegraph/
+.omo/
 .omx/
 .venv/
 **/.venv/
