@@ -1,0 +1,11 @@
+{
+  "redactedCounts": {
+    "html-input": 2,
+    "cookie": 8,
+    "json": 77,
+    "query": 4,
+    "header": 2
+  },
+  "sanitizedScanFindings": [],
+  "readyForGit": true
+}

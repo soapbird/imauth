@@ -1,0 +1,26 @@
+[
+  {
+    "url": "https://nid.naver.com/login/js/srcOnError.js",
+    "sha256": "f3a0cb5e6e03b07b8a211598949ddab384398d43913f7f7f3af96c7a64a06d76",
+    "bytes": 4257,
+    "contentType": "application/javascript"
+  },
+  {
+    "url": "https://nid.naver.com/passkey/js/passkeyApi.js?v=20251201",
+    "sha256": "7779b27afd508d0913a3ac752b6be959f4d318c5db8a65bbff9dcb1eeb03f881",
+    "bytes": 658637,
+    "contentType": "text/javascript"
+  },
+  {
+    "url": "https://nid.naver.com/login/js/v4/pages/login.js?v=20260729",
+    "sha256": "ef0703bff1b5028ca7b0cb192089b8327fa96edc9dbb038de424d0b5f94a46e8",
+    "bytes": 305642,
+    "contentType": "application/javascript"
+  },
+  {
+    "url": "https://ncpt.naver.com/static/ncaptcha-api.js?ncaptcha-sitekey=%5BREDACTED%5D",
+    "sha256": "967db86a2eac63a72b48300669638c8813422e45bd17b3bc49f37085189eff10",
+    "bytes": 76630,
+    "contentType": "text/javascript; charset=utf-8"
+  }
+]
