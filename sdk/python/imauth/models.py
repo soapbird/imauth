@@ -1,13 +1,17 @@
 """Pydantic models for imauth types."""
 
 from enum import Enum
-from typing import Optional
-from pydantic import BaseModel
+
+from pydantic import BaseModel, Field
+
 
 class Platform(str, Enum):
     INSTAGRAM = "instagram"
     THREADS = "threads"
     NAVER = "naver"
+    NOVELPIA = "novelpia"
+    MUNPIA = "munpia"
+
 
 class AuthStatus(str, Enum):
     IDLE = "idle"
@@ -16,6 +20,7 @@ class AuthStatus(str, Enum):
     WAITING_FOR_USER = "waiting_for_user"
     CONNECTED = "connected"
     FAILED = "failed"
+
 
 class Cookie(BaseModel):
     name: str
@@ -26,18 +31,25 @@ class Cookie(BaseModel):
     http_only: bool = False
     secure: bool = False
 
+
 class AuthEvent(BaseModel):
     status: AuthStatus
     session_id: str = ""
     message: str = ""
     requires_input: bool = False
     input_type: str = ""
-    cookies: list[Cookie] = []
-    screenshot: bytes = b""
+    cookies: list[Cookie] = Field(default_factory=list)
     viewer_url: str = ""
+
 
 class CredentialInfo(BaseModel):
     platform: Platform
     username: str
     has_password: bool
     twofa_method: str = ""
+
+
+class SessionValidation(BaseModel):
+    valid: bool
+    expires_at: int
+    session_cookie_name: str

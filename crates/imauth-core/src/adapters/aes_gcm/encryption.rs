@@ -47,12 +47,6 @@ impl AesGcmEncryptionService {
     }
 }
 
-pub fn generate_key() -> String {
-    let mut key = [0u8; 32];
-    rand::thread_rng().fill(&mut key);
-    BASE64.encode(key)
-}
-
 impl EncryptionService for AesGcmEncryptionService {
     fn encrypt(&self, plaintext: &str) -> Result<String> {
         let mut nonce_bytes = [0u8; 12];
@@ -120,7 +114,7 @@ mod tests {
     #[test]
     fn from_config_accepts_configured_key() {
         let mut config = Config::default();
-        config.security.encryption_key = Some(generate_key());
+        config.security.encryption_key = Some(STANDARD_KEY.to_string());
         assert!(AesGcmEncryptionService::from_config(&config).is_ok());
     }
 
@@ -232,19 +226,25 @@ mod tests {
 
     #[test]
     fn decrypt_accepts_url_safe_padded_ciphertext() {
-        // Encrypt with standard base64, then transform ciphertext to URL-safe padded.
         let svc = AesGcmEncryptionService::from_key(STANDARD_KEY).unwrap();
-        let ct_standard = svc.encrypt("hello world").unwrap();
+        let ct_standard = (0..=u8::MAX)
+            .find_map(|nonce_byte| {
+                let nonce_bytes = [nonce_byte; 12];
+                let nonce = Nonce::from_slice(&nonce_bytes);
+                let encrypted = svc.cipher.encrypt(nonce, &b"hello world!"[..]).unwrap();
+                let mut data = Vec::with_capacity(12 + encrypted.len());
+                data.extend_from_slice(&nonce_bytes);
+                data.extend_from_slice(&encrypted);
+                let encoded = BASE64.encode(data);
+                (encoded.contains('+') || encoded.contains('/')).then_some(encoded)
+            })
+            .expect("deterministic ciphertext should exercise URL-safe alphabet mapping");
         let ct_url_padded = to_url_safe_padded(&ct_standard);
-        // Sanity: URL-safe padded form differs from standard (due to +/- mapping)
         assert_ne!(ct_standard, ct_url_padded);
-        // Note: padding '=' only appears when the base64 input is not a multiple of 3 bytes.
-        // The nonce(12) + GCM tag(16) = 28 bytes → 28*4/3 ≈ 37.3 → 39 base64 chars (no pad needed).
-        // We only need to verify the '-' and '_' replacement happened.
         assert!(ct_url_padded.contains('-') || ct_url_padded.contains('_'));
         assert!(!ct_url_padded.contains('+')); // + replaced with -
         assert!(!ct_url_padded.contains('/')); // / replaced with _
-        assert_eq!(svc.decrypt(&ct_url_padded).unwrap(), "hello world");
+        assert_eq!(svc.decrypt(&ct_url_padded).unwrap(), "hello world!");
     }
 
     #[test]

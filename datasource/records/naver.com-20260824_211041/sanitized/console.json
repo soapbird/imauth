@@ -1,0 +1,54 @@
+[
+  {
+    "timestamp": "2026-08-24T12:10:42.367Z",
+    "type": "warning",
+    "text": "setPolicyInfo {versionInfo: Object, sdkInfo: Object, sentryInfo: Object}",
+    "location": {
+      "url": "https://ssl.pstatic.net/tveta/libs/glad/prod/gfp-core.js",
+      "line": 0,
+      "column": 35898,
+      "lineNumber": 0,
+      "columnNumber": 35898
+    },
+    "pageUrl": "https://nid.naver.com/nidlogin.login"
+  },
+  {
+    "timestamp": "2026-08-24T12:10:44.020Z",
+    "type": "warning",
+    "text": "[.WebGL-0x1040046c000]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "location": {
+      "url": "https://nid.naver.com/nidlogin.login",
+      "line": 0,
+      "column": 0,
+      "lineNumber": 0,
+      "columnNumber": 0
+    },
+    "pageUrl": "https://nid.naver.com/nidlogin.login"
+  },
+  {
+    "timestamp": "2026-08-24T12:10:44.020Z",
+    "type": "warning",
+    "text": "[.WebGL-0x1040046ba00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "location": {
+      "url": "https://nid.naver.com/nidlogin.login",
+      "line": 0,
+      "column": 0,
+      "lineNumber": 0,
+      "columnNumber": 0
+    },
+    "pageUrl": "https://nid.naver.com/nidlogin.login"
+  },
+  {
+    "timestamp": "2026-08-24T12:10:44.020Z",
+    "type": "warning",
+    "text": "[.WebGL-0x1040046ba00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+    "location": {
+      "url": "https://nid.naver.com/nidlogin.login",
+      "line": 0,
+      "column": 0,
+      "lineNumber": 0,
+      "columnNumber": 0
+    },
+    "pageUrl": "https://nid.naver.com/nidlogin.login"
+  }
+]

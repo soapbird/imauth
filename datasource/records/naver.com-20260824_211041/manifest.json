@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "status": "completed",
+  "createdAt": "2026-08-24T12:10:44.079Z",
+  "sourceUrl": "https://nid.naver.com/nidlogin.login",
+  "providerDomain": "naver.com",
+  "captureMode": "isolated",
+  "detailLevel": "standard",
+  "checkpoints": [
+    {
+      "name": "01-final",
+      "url": "https://nid.naver.com/nidlogin.login"
+    }
+  ],
+  "rawArtifacts": [],
+  "sanitizedArtifacts": [
+    "HTML checkpoints",
+    "cookie/storage state",
+    "HAR",
+    "console warnings/errors",
+    "JavaScript inventory"
+  ],
+  "sanitizedOmissions": [
+    "raw values",
+    "screenshots",
+    "Playwright trace",
+    "JavaScript bodies"
+  ],
+  "sanitizedFiles": [
+    {
+      "path": "sanitized/checkpoints/01-final/page.html",
+      "sha256": "a61e48533b4e99b2c41d8f0009d6faa07132df3be255e245f6fb7b68390d4edb",
+      "bytes": 27024
+    },
+    {
+      "path": "sanitized/checkpoints/01-final/state.json",
+      "sha256": "2c70e06344ab20a1a21812144eb5d865142448c4a45c64fab606249e0b463144",
+      "bytes": 2520
+    },
+    {
+      "path": "sanitized/console.json",
+      "sha256": "dda37d47dbd5b4cb8139fe4093b6096430ab096e1a102c753b755b0b48b2fee5",
+      "bytes": 1677
+    },
+    {
+      "path": "sanitized/javascript.json",
+      "sha256": "b9b00b31904dc18c8180e425ae9b7ab3ba97525c5e82b980971f4f857294e913",
+      "bytes": 922
+    },
+    {
+      "path": "sanitized/network.har",
+      "sha256": "459329e881226c8239f27029c8d246b6fa53399ffccf584508bd286e49a96438",
+      "bytes": 130231
+    }
+  ],
+  "readyForGit": true
+}

@@ -14,11 +14,28 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
       - run: cargo build --workspace
         env:
           PROTOC: /usr/bin/protoc
       - run: cargo test --workspace
       - run: cargo clippy --workspace -- -D warnings
+
+  proto:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3
+        with:
+          version: 1.72.0
+          setup_only: true
+      - run: buf lint
+      - run: buf format --diff --exit-code
+      - name: check breaking protobuf changes
+        if: github.event_name == 'pull_request'
+        run: buf breaking --against '.git#branch=${{ github.base_ref }},subdir=proto'
 
   python-sdk:
     runs-on: ubuntu-latest
@@ -34,13 +51,50 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install -e . pytest grpcio-tools
-          .venv/bin/python -m grpc_tools.protoc \
-            -I../../proto \
-            --python_out=imauth \
-            --grpc_python_out=imauth \
-            ../../proto/imauth/v1/*.proto
-          .venv/bin/python -m pytest tests/ -v
+          .venv/bin/pip install -e . anyio basedpyright==1.39.0 grpcio-tools==1.76.0 pytest ruff==0.16.4
+          make quality PYTHON=.venv/bin/python
+          make test PYTHON=.venv/bin/python
+      - name: verify wheel protobuf runtime compatibility
+        working-directory: sdk/python
+        run: |
+          wheel_dir=$(mktemp -d)
+          python -m pip wheel --no-deps --wheel-dir "$wheel_dir" .
+          python -m venv "$wheel_dir/.venv"
+          "$wheel_dir/.venv/bin/pip" install --upgrade pip
+          "$wheel_dir/.venv/bin/pip" install "$wheel_dir"/imauth-*.whl
+          "$wheel_dir/.venv/bin/python" - <<'PY'
+          from concurrent.futures import ThreadPoolExecutor
+
+          import grpc
+          from imauth import ImauthClient
+          from imauth.v1 import session_pb2, session_pb2_grpc
+
+
+          class ConnectionStatusService(session_pb2_grpc.SessionServiceServicer):
+              def GetConnectionStatus(self, request, context):
+                  return session_pb2.ConnectionStatusMap(
+                      platforms={"instagram": True, "naver": False}
+                  )
+
+
+          server = grpc.server(ThreadPoolExecutor(max_workers=1))
+          session_pb2_grpc.add_SessionServiceServicer_to_server(
+              ConnectionStatusService(), server
+          )
+          port = server.add_insecure_port("127.0.0.1:0")
+          assert port
+          server.start()
+          client = ImauthClient(f"127.0.0.1:{port}")
+          try:
+              grpc.channel_ready_future(client._channel).result(timeout=5)
+              assert client.get_connection_status() == {
+                  "instagram": True,
+                  "naver": False,
+              }
+          finally:
+              client.close()
+              server.stop(0).wait()
+          PY
 
   ts-sdk:
     runs-on: ubuntu-latest
@@ -51,6 +105,22 @@ jobs:
           node-version: "20"
       - working-directory: sdk/typescript
         run: |
-          npm install
+          npm ci
+          npm run lint
+          npm run format:check
           npm test
           npm run build
+
+  provider-recorder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+      - name: test recorder redaction and filesystem boundaries
+        run: >-
+          node --test
+          scripts/provider-record-redaction.test.mjs
+          scripts/provider-record-filesystem.test.mjs
+          scripts/provider-record-output-root.test.mjs

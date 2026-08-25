@@ -1,5 +1,5 @@
 use crate::domain::session::{Cookie, Session};
-use crate::domain::{Credential, RefreshToken};
+use crate::domain::Credential;
 use crate::Result;
 use async_trait::async_trait;
 
@@ -36,12 +36,4 @@ pub trait CredentialRepository: Send + Sync {
     ) -> Result<()>;
     async fn get(&self, platform: &str) -> Result<Option<Credential>>;
     async fn delete(&self, platform: &str) -> Result<()>;
-    async fn get_decrypted_password(&self, platform: &str) -> Result<Option<(String, String)>>;
-}
-
-#[cfg_attr(test, mockall::automock)]
-#[async_trait]
-pub trait RefreshTokenRepository: Send + Sync {
-    async fn save(&self, token: &RefreshToken) -> Result<()>;
-    async fn get(&self, platform: &str) -> Result<Option<RefreshToken>>;
 }

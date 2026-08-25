@@ -1,14 +1,9 @@
 """Synchronous imauth client."""
 
-from typing import Iterator, Optional
+from collections.abc import Iterator
 
 import grpc
 
-from imauth.v1 import auth_pb2, auth_pb2_grpc
-from imauth.v1 import common_pb2
-from imauth.v1 import credential_pb2, credential_pb2_grpc
-from imauth.v1 import session_pb2, session_pb2_grpc
-from imauth.models import AuthEvent, AuthStatus, Cookie, CredentialInfo, Platform
 from imauth._converters import (
     api_key_metadata,
     auth_event_from_proto,
@@ -17,6 +12,17 @@ from imauth._converters import (
     platform_from_proto,
     platform_to_proto,
     status_response_to_event,
+)
+from imauth.exceptions import rpc_error_to_imauth, translate_rpc_errors
+from imauth.models import AuthEvent, Cookie, CredentialInfo, Platform, SessionValidation
+from imauth.v1 import (
+    auth_pb2,
+    auth_pb2_grpc,
+    common_pb2,
+    credential_pb2,
+    credential_pb2_grpc,
+    session_pb2,
+    session_pb2_grpc,
 )
 
 # Backward-compat private aliases — keep callers and tests that import the
@@ -38,11 +44,28 @@ class ImauthClient:
     def __init__(
         self,
         server_address: str = "localhost:6100",
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
+        root_certificates: bytes | None = None,
+        server_name: str | None = None,
     ):
         self.server_address = server_address
         self.api_key = api_key
-        self._channel = grpc.insecure_channel(server_address)
+        if root_certificates is None and server_name is None:
+            self._channel = grpc.insecure_channel(server_address)
+        else:
+            credentials = grpc.ssl_channel_credentials(
+                root_certificates=root_certificates
+            )
+            options = (
+                (("grpc.ssl_target_name_override", server_name),)
+                if server_name is not None
+                else ()
+            )
+            self._channel = grpc.secure_channel(
+                server_address,
+                credentials,
+                options=options,
+            )
 
     def _meta(self):
         return api_key_metadata(self.api_key)
@@ -58,10 +81,11 @@ class ImauthClient:
         req = auth_pb2.LoginRequest(
             platform=platform_to_proto(platform),
         )
-        for event in stub.Login(req, metadata=self._meta()):
-            yield auth_event_from_proto(event)
+        with translate_rpc_errors():
+            for event in stub.Login(req, metadata=self._meta()):
+                yield auth_event_from_proto(event)
 
-    def get_status(self, session_id: str) -> Optional[AuthEvent]:
+    def get_status(self, session_id: str) -> AuthEvent | None:
         """Get current status of a session. Returns None if the session is unknown."""
         stub = auth_pb2_grpc.AuthServiceStub(self._channel)
         req = auth_pb2.StatusRequest(session_id=session_id)
@@ -71,7 +95,7 @@ class ImauthClient:
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.NOT_FOUND:
                 return None
-            raise
+            raise rpc_error_to_imauth(e) from e
 
     def cancel(self, session_id: str) -> None:
         """Cancel an in-flight session. Idempotent — NOT_FOUND is suppressed."""
@@ -81,14 +105,14 @@ class ImauthClient:
             stub.Cancel(req, metadata=self._meta())
         except grpc.RpcError as e:
             if e.code() != grpc.StatusCode.NOT_FOUND:
-                raise
+                raise rpc_error_to_imauth(e) from e
 
     # --- session ----------------------------------------------------------
 
     def get_cookies(
         self,
         platform: Platform,
-        domains: Optional[list[str]] = None,
+        domains: list[str] | None = None,
     ) -> list[Cookie]:
         """Get stored cookies for a platform, optionally filtered by domain."""
         stub = session_pb2_grpc.SessionServiceStub(self._channel)
@@ -96,7 +120,8 @@ class ImauthClient:
             platform=platform_to_proto(platform),
             domains=domains or [],
         )
-        resp = stub.GetCookies(req, metadata=self._meta())
+        with translate_rpc_errors():
+            resp = stub.GetCookies(req, metadata=self._meta())
         return [cookie_from_proto(c) for c in resp.cookies]
 
     def update_cookies(self, platform: Platform, cookies: list[Cookie]) -> None:
@@ -106,26 +131,37 @@ class ImauthClient:
             platform=platform_to_proto(platform),
             cookies=[cookie_to_proto(c) for c in cookies],
         )
-        stub.UpdateCookies(req, metadata=self._meta())
+        with translate_rpc_errors():
+            stub.UpdateCookies(req, metadata=self._meta())
 
     def export_netscape(self, platform: Platform) -> str:
         """Export cookies in Netscape format."""
         stub = session_pb2_grpc.SessionServiceStub(self._channel)
         req = session_pb2.ExportRequest(platform=platform_to_proto(platform))
-        resp = stub.ExportNetscape(req, metadata=self._meta())
+        with translate_rpc_errors():
+            resp = stub.ExportNetscape(req, metadata=self._meta())
         return resp.content
 
     def validate_session(self, platform: Platform) -> bool:
         """Return True if a session cookie for the platform is present."""
+        return self.validate_session_details(platform).valid
+
+    def validate_session_details(self, platform: Platform) -> SessionValidation:
         stub = session_pb2_grpc.SessionServiceStub(self._channel)
         req = session_pb2.ValidateRequest(platform=platform_to_proto(platform))
-        resp = stub.ValidateSession(req, metadata=self._meta())
-        return bool(resp.valid)
+        with translate_rpc_errors():
+            resp = stub.ValidateSession(req, metadata=self._meta())
+        return SessionValidation(
+            valid=bool(resp.valid),
+            expires_at=resp.expires_at,
+            session_cookie_name=resp.session_cookie_name,
+        )
 
     def get_connection_status(self) -> dict[str, bool]:
         """Get connection status for all platforms."""
         stub = session_pb2_grpc.SessionServiceStub(self._channel)
-        resp = stub.GetConnectionStatus(common_pb2.Empty(), metadata=self._meta())
+        with translate_rpc_errors():
+            resp = stub.GetConnectionStatus(common_pb2.Empty(), metadata=self._meta())
         return dict(resp.platforms)
 
     # --- credentials ------------------------------------------------------
@@ -135,7 +171,7 @@ class ImauthClient:
         platform: Platform,
         username: str,
         password: str,
-        twofa_method: Optional[str] = None,
+        twofa_method: str | None = None,
     ) -> None:
         """Save credentials for a platform."""
         stub = credential_pb2_grpc.CredentialServiceStub(self._channel)
@@ -145,9 +181,10 @@ class ImauthClient:
             password=password,
             twofa_method=twofa_method or "",
         )
-        stub.Save(req, metadata=self._meta())
+        with translate_rpc_errors():
+            stub.Save(req, metadata=self._meta())
 
-    def get_credentials(self, platform: Platform) -> Optional[CredentialInfo]:
+    def get_credentials(self, platform: Platform) -> CredentialInfo | None:
         """Get stored credential info for a platform. Returns None on NOT_FOUND."""
         stub = credential_pb2_grpc.CredentialServiceStub(self._channel)
         req = credential_pb2.GetCredentialRequest(platform=platform_to_proto(platform))
@@ -162,7 +199,7 @@ class ImauthClient:
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.NOT_FOUND:
                 return None
-            raise
+            raise rpc_error_to_imauth(e) from e
 
     def delete_credentials(self, platform: Platform) -> bool:
         """Delete stored credentials for a platform. Returns True if existed."""
@@ -176,7 +213,7 @@ class ImauthClient:
         except grpc.RpcError as e:
             if e.code() == grpc.StatusCode.NOT_FOUND:
                 return False
-            raise
+            raise rpc_error_to_imauth(e) from e
 
     def close(self) -> None:
         self._channel.close()

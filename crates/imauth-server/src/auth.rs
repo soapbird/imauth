@@ -74,8 +74,7 @@ mod tests {
 
     fn req_with(header: &'static str, value: &str) -> tonic::Request<()> {
         let mut req = tonic::Request::new(());
-        req.metadata_mut()
-            .insert(header, value.parse().unwrap());
+        req.metadata_mut().insert(header, value.parse().unwrap());
         req
     }
 

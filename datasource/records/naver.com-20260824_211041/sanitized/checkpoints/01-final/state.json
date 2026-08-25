@@ -1,0 +1,95 @@
+{
+  "url": "https://nid.naver.com/nidlogin.login",
+  "title": "NAVER 로그인",
+  "cookies": [
+    {
+      "name": "NID_JST",
+      "value": "[REDACTED]",
+      "domain": ".nid.naver.com",
+      "path": "/",
+      "expires": 1804853441.948338,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "nid_slevel",
+      "value": "[REDACTED]",
+      "domain": ".nid.naver.com",
+      "path": "/",
+      "expires": 1819109442,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "NNB",
+      "value": "[REDACTED]",
+      "domain": ".naver.com",
+      "path": "/",
+      "expires": 1822133442.482223,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "SRT30",
+      "value": "[REDACTED]",
+      "domain": ".naver.com",
+      "path": "/",
+      "expires": 1787575242.482359,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "SRT5",
+      "value": "[REDACTED]",
+      "domain": ".naver.com",
+      "path": "/",
+      "expires": 1787573742.482401,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "BUC",
+      "value": "[REDACTED]",
+      "domain": ".naver.com",
+      "path": "/",
+      "expires": 1822133442.482427,
+      "httpOnly": true,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "NAC",
+      "value": "[REDACTED]",
+      "domain": ".naver.com",
+      "path": "/",
+      "expires": 1822133442.635586,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "None"
+    },
+    {
+      "name": "NACT",
+      "value": "[REDACTED]",
+      "domain": ".naver.com",
+      "path": "/",
+      "expires": 1787659842.636609,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "storage": {
+    "localStorage": {
+      "glad_loader_policy_info": "{\"regDate\":\"2026-08-24T12:10:42.364Z\",\"data\":{\"versionInfo\":{\"policyVersion\":\"260723.01\",\"loaderVersion\":\"1.6.2\",\"sdkVersion\":\"3.10.7\"},\"sdkInfo\":{\"latestRatio\":1,\"config\":{}},\"sentryInfo\":{\"enableSentry\":false,\"config\":{\"sampleRate\":0.001}}}}",
+      "3fbddd8d15feb0d3": "377cb03ee8881995c9447548ab41b074956a185ada8d9237b36f14881d93689a",
+      "gfp_uuid_iv": "e32be80e-a97c-4147-b344-bbcfee7a2fa6",
+      "d6277b37e628876c": "4f65fe658c343c1a31a7a2be646b81c9dab51d0551296be172252062cd8bf85c"
+    },
+    "sessionStorage": "[REDACTED]"
+  }
+}

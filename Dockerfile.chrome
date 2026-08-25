@@ -17,13 +17,13 @@ ENV VNC_RESOLUTION=1366x768 \
     KASM_SVC_PRINTER=0 \
     KASM_SVC_SMARTCARD=0 \
     LAUNCH_URL=about:blank \
-    APP_ARGS="--start-maximized --remote-debugging-address=0.0.0.0 --remote-debugging-port=9222 --user-data-dir=/home/kasm-user/.config/chromium --lang=ko-KR"
+    APP_ARGS="--start-maximized --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --user-data-dir=/home/kasm-user/.config/chromium --lang=ko-KR"
 
 EXPOSE 9223 6901
 
 USER 0:0
 
 HEALTHCHECK --interval=3s --timeout=5s --retries=10 \
-  CMD curl -f http://localhost:9223/json/version || exit 1
+  CMD curl -f "http://$(hostname -i | awk '{print $1}'):9223/json/version" || exit 1
 
 ENTRYPOINT ["/bin/bash", "-lc", "/chrome-entrypoint.sh"]

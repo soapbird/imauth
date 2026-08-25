@@ -1,14 +1,23 @@
 use crate::domain::session::Cookie;
+use chrono::Utc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Platform {
     Instagram,
     Threads,
     Naver,
+    Novelpia,
+    Munpia,
 }
 
 impl Platform {
-    pub const ALL: &'static [Platform] = &[Platform::Instagram, Platform::Threads, Platform::Naver];
+    pub const ALL: &'static [Platform] = &[
+        Platform::Instagram,
+        Platform::Threads,
+        Platform::Naver,
+        Platform::Novelpia,
+        Platform::Munpia,
+    ];
 
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
@@ -16,6 +25,8 @@ impl Platform {
             "instagram" => Some(Platform::Instagram),
             "threads" => Some(Platform::Threads),
             "naver" => Some(Platform::Naver),
+            "novelpia" => Some(Platform::Novelpia),
+            "munpia" => Some(Platform::Munpia),
             _ => None,
         }
     }
@@ -25,6 +36,8 @@ impl Platform {
             Platform::Instagram => "instagram",
             Platform::Threads => "threads",
             Platform::Naver => "naver",
+            Platform::Novelpia => "novelpia",
+            Platform::Munpia => "munpia",
         }
     }
 
@@ -32,6 +45,8 @@ impl Platform {
         match self {
             Platform::Instagram | Platform::Threads => "https://www.instagram.com/accounts/login/",
             Platform::Naver => "https://nid.naver.com/nidlogin.login",
+            Platform::Novelpia => "https://novelpia.com/login/",
+            Platform::Munpia => "https://nssl.munpia.com/login",
         }
     }
 
@@ -41,6 +56,8 @@ impl Platform {
                 &[".instagram.com", ".threads.net", ".threads.com"]
             }
             Platform::Naver => &[".naver.com", ".nid.naver.com"],
+            Platform::Novelpia => &[".novelpia.com"],
+            Platform::Munpia => &[".munpia.com"],
         }
     }
 
@@ -48,6 +65,8 @@ impl Platform {
         match self {
             Platform::Instagram | Platform::Threads => "sessionid",
             Platform::Naver => "NID_AUT",
+            Platform::Novelpia => "AUTOLOGIN",
+            Platform::Munpia => "TOKEN",
         }
     }
 
@@ -66,18 +85,24 @@ impl Platform {
             .collect()
     }
 
-    pub fn has_session_cookie(&self, cookies: &[Cookie]) -> bool {
+    pub fn session_cookie<'a>(&self, cookies: &'a [Cookie]) -> Option<&'a Cookie> {
         let name = self.session_cookie_name();
-        cookies
-            .iter()
-            .any(|c| c.name == name && self.cookie_matches_domain(c))
+        cookies.iter().find(|c| {
+            c.name == name
+                && self.cookie_matches_domain(c)
+                && c.expires.is_none_or(|expires| expires > Utc::now())
+        })
+    }
+
+    pub fn has_session_cookie(&self, cookies: &[Cookie]) -> bool {
+        self.session_cookie(cookies).is_some()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
 
     fn cookie(name: &str, domain: &str) -> Cookie {
         Cookie {
@@ -85,7 +110,7 @@ mod tests {
             value: "v".into(),
             domain: domain.into(),
             path: "/".into(),
-            expires: Some(Utc::now()),
+            expires: Some(Utc::now() + Duration::hours(1)),
             http_only: false,
             secure: true,
         }
@@ -210,5 +235,82 @@ mod tests {
     fn has_session_cookie_false_for_other_cookie_name() {
         let cookies = vec![cookie("csrftoken", ".instagram.com")];
         assert!(!Platform::Instagram.has_session_cookie(&cookies));
+    }
+
+    #[test]
+    fn has_session_cookie_false_when_expired() {
+        let mut session_cookie = cookie("sessionid", ".instagram.com");
+        session_cookie.expires = Some(Utc::now() - Duration::seconds(1));
+
+        assert!(!Platform::Instagram.has_session_cookie(&[session_cookie]));
+    }
+
+    #[test]
+    fn has_session_cookie_accepts_session_cookie_without_expiry() {
+        let mut session_cookie = cookie("sessionid", ".instagram.com");
+        session_cookie.expires = None;
+
+        assert!(Platform::Instagram.has_session_cookie(&[session_cookie]));
+    }
+
+    #[test]
+    fn novelpia_login_url_and_cookie_domain() {
+        assert_eq!(
+            Platform::Novelpia.login_url(),
+            "https://novelpia.com/login/"
+        );
+        assert_eq!(Platform::Novelpia.cookie_domains(), &[".novelpia.com"]);
+    }
+
+    #[test]
+    fn novelpia_session_cookie_name_is_autologin() {
+        assert_eq!(Platform::Novelpia.session_cookie_name(), "AUTOLOGIN");
+    }
+
+    #[test]
+    fn novelpia_rejects_anonymous_bootstrap_cookies() {
+        let cookies = vec![
+            cookie("LOGINKEY", ".novelpia.com"),
+            cookie("USERKEY", ".novelpia.com"),
+        ];
+        assert!(!Platform::Novelpia.has_session_cookie(&cookies));
+    }
+
+    #[test]
+    fn novelpia_has_session_cookie_when_autologin_is_present() {
+        let cookies = vec![cookie("AUTOLOGIN", ".novelpia.com")];
+        assert!(Platform::Novelpia.has_session_cookie(&cookies));
+    }
+
+    #[test]
+    fn novelpia_filter_cookies_keeps_only_novelpia_domains() {
+        let cookies = vec![
+            cookie("LOGINKEY", ".novelpia.com"),
+            cookie("USERKEY", "novelpia.com"),
+            cookie("foo", "example.com"),
+        ];
+        let kept = Platform::Novelpia.filter_cookies(cookies);
+        assert_eq!(kept.len(), 2);
+        assert!(kept.iter().all(|c| c.name != "foo"));
+    }
+
+    #[test]
+    fn munpia_login_url_and_cookie_domain() {
+        assert_eq!(
+            Platform::Munpia.login_url(),
+            "https://nssl.munpia.com/login"
+        );
+        assert_eq!(Platform::Munpia.cookie_domains(), &[".munpia.com"]);
+    }
+
+    #[test]
+    fn munpia_session_cookie_name_is_token() {
+        assert_eq!(Platform::Munpia.session_cookie_name(), "TOKEN");
+    }
+
+    #[test]
+    fn munpia_has_session_cookie_accepts_login_subdomain() {
+        let cookies = vec![cookie("TOKEN", ".nssl.munpia.com")];
+        assert!(Platform::Munpia.has_session_cookie(&cookies));
     }
 }
