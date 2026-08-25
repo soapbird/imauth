@@ -65,7 +65,7 @@ impl Platform {
         match self {
             Platform::Instagram | Platform::Threads => "sessionid",
             Platform::Naver => "NID_AUT",
-            Platform::Novelpia => "LOGINKEY",
+            Platform::Novelpia => "AUTOLOGIN",
             Platform::Munpia => "TOKEN",
         }
     }
@@ -263,13 +263,22 @@ mod tests {
     }
 
     #[test]
-    fn novelpia_session_cookie_name_is_loginkey() {
-        assert_eq!(Platform::Novelpia.session_cookie_name(), "LOGINKEY");
+    fn novelpia_session_cookie_name_is_autologin() {
+        assert_eq!(Platform::Novelpia.session_cookie_name(), "AUTOLOGIN");
     }
 
     #[test]
-    fn novelpia_has_session_cookie_true_when_present() {
-        let cookies = vec![cookie("LOGINKEY", ".novelpia.com")];
+    fn novelpia_rejects_anonymous_bootstrap_cookies() {
+        let cookies = vec![
+            cookie("LOGINKEY", ".novelpia.com"),
+            cookie("USERKEY", ".novelpia.com"),
+        ];
+        assert!(!Platform::Novelpia.has_session_cookie(&cookies));
+    }
+
+    #[test]
+    fn novelpia_has_session_cookie_when_autologin_is_present() {
+        let cookies = vec![cookie("AUTOLOGIN", ".novelpia.com")];
         assert!(Platform::Novelpia.has_session_cookie(&cookies));
     }
 
