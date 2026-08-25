@@ -45,6 +45,12 @@ map \$viewer_query_authorized \$viewer_set_cookie {
   1 "imauth_viewer_token=\$arg_token; Path=/; HttpOnly; SameSite=Strict${viewer_cookie_secure}";
 }
 
+map "\$uri:\$arg_enable_webp" \$viewer_webp_redirect {
+  default 0;
+  "/:" 1;
+  "/index.html:" 1;
+}
+
 upstream viewer_backend {
   server ${UPSTREAM_HOST}:${UPSTREAM_PORT};
 }
@@ -52,6 +58,7 @@ upstream viewer_backend {
 server {
   listen 8080;
   server_name _;
+  absolute_redirect off;
   access_log off;
 
   add_header Referrer-Policy "no-referrer" always;
@@ -77,11 +84,15 @@ server {
 
   location / {
     if (\$viewer_query_authorized = 1) {
-      return 303 \$uri;
+      return 303 \$uri?enable_webp=0;
     }
 
     if (\$viewer_authorized = 0) {
       return 403;
+    }
+
+    if (\$viewer_webp_redirect = 1) {
+      return 303 \$uri?enable_webp=0;
     }
 
     proxy_pass http://viewer_backend\$uri;

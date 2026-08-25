@@ -125,7 +125,7 @@ status=$(curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/")
 curl -sS -D "$headers" -o /dev/null -c "$cookie_jar" \
   "http://127.0.0.1:$port/index.html?token=$token"
 grep -Eq '^HTTP/[^ ]+ 303' "$headers"
-grep -Eiq '^Location: .*/index\.html\r?$' "$headers"
+grep -Eiq '^Location: /index\.html\?enable_webp=0\r?$' "$headers"
 if grep -Eiq '^Location: .*token=' "$headers"; then
   echo "redirect leaked the viewer token" >&2
   exit 1
@@ -139,6 +139,15 @@ grep -Eiq '^Cache-Control: no-store\r?$' "$headers"
 
 curl -sS -D "$headers" -b "$cookie_jar" -o "$body" \
   "http://127.0.0.1:$port/index.html"
+grep -Eq '^HTTP/[^ ]+ 303' "$headers"
+grep -Eiq '^Location: /index\.html\?enable_webp=0\r?$' "$headers"
+if grep -Eiq '^Set-Cookie:' "$headers"; then
+  echo "viewer redirect unexpectedly reset the bootstrap cookie" >&2
+  exit 1
+fi
+
+curl -sS -D "$headers" -b "$cookie_jar" -o "$body" \
+  "http://127.0.0.1:$port/index.html?enable_webp=0"
 grep -Fq 'Welcome to nginx!' "$body"
 grep -Eiq '^Referrer-Policy: no-referrer\r?$' "$headers"
 grep -Eiq '^Content-Security-Policy: .*frame-ancestors '\''none'\''' "$headers"
