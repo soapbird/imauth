@@ -17,6 +17,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY patches/ ./patches/
 COPY crates/ ./crates/
 COPY proto/ ./proto/
+COPY scripts/provider-record.mjs scripts/provider-record-redaction.mjs ./scripts/
 
 # Build release binaries
 RUN cargo build --release -p imauth-server -p imauth-cli
