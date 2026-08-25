@@ -4,9 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-25
+
 ### Added
 - `PLATFORM_NOVELPIA` (4): browser-driven login for Novelpia. `LOGINKEY` is the session cookie — Apple sign-in sessions never issue `ISLOGIN`.
 - `PLATFORM_MUNPIA` (5): browser-driven login for Munpia. `TOKEN` is the session cookie. Tag 4 is left for Novelpia.
+- Opt-in gRPC TLS: the server can serve TLS directly, and both SDKs open secure channels (custom CA, server name override).
+- Cookies are encrypted at rest (AES-256-GCM) inside the SQLite store.
+- `imauth provider record`: a local browser recorder that captures provider login flows and emits sanitized, reviewable artifacts for onboarding new platforms.
+- CLI commands for listing and managing login sessions.
+
+### Changed
+- Container images now publish to `docker.lowapple.io` (replacing the Docker Hub `imyounjs` namespace). Update pull sources and image references accordingly.
+- Viewer security hardened: remote access requires authorization, ports default to loopback-only, compose fails closed on invalid configuration, and viewer URLs are never reused across sessions.
+- Dropped dormant auth infrastructure and the screenshot event field from the login flow.
+
+### Fixed
+- Login stops promptly after a session is cancelled instead of polling to timeout.
+- Browser slot acquisition and cookie polling are time-bounded; stuck logins now fail with an error.
+- Cookie expiry and export domains are validated, and storage rejects invalid session state transitions.
+- `GetStatus` surfaces cookie repository errors instead of masking them.
+- Updated-cookie API responses are normalized across platforms.
+- Viewer streams render reliably again (WebP frame decoding disabled).
+- Docker: the Chrome relay listener is probed before routing traffic, and the server image includes the recorder scripts.
+- Python/TypeScript SDK packaging: generated protobuf modules ship correctly, wire types match the proto definitions, and RPC errors map to typed client exceptions.
 
 ## [0.6.0] - 2026-06-29
 
