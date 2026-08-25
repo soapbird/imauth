@@ -33,7 +33,6 @@ sdk/python/*.egg-info/
 sdk/python/.pytest_cache/
 sdk/python/.ruff_cache/
 sdk/python/.mypy_cache/
-sdk/python/.basedpyright/
 sdk/python/dist/
 sdk/python/build/
 sdk/python/uv.lock
