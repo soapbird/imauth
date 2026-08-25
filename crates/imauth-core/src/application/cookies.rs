@@ -40,6 +40,7 @@ impl UpdateCookiesUseCase {
     }
 
     pub async fn execute(&self, platform: Platform, cookies: Vec<Cookie>) -> Result<()> {
+        let cookies = platform.filter_cookies(cookies);
         self.cookies.save(platform.as_str(), &cookies).await
     }
 }
@@ -69,9 +70,7 @@ impl ValidateSessionUseCase {
 
     pub async fn execute(&self, platform: Platform) -> Result<ValidationOutcome> {
         let cookies = self.cookies.get(platform.as_str(), None).await?;
-        let session_cookie = cookies
-            .iter()
-            .find(|c| c.name == platform.session_cookie_name());
+        let session_cookie = platform.session_cookie(&cookies);
         Ok(ValidationOutcome {
             valid: session_cookie.is_some(),
             expires_at: session_cookie
@@ -94,10 +93,10 @@ impl GetConnectionStatusUseCase {
     pub async fn execute(&self) -> Result<HashMap<String, bool>> {
         let jar = &self.cookies;
         let fetches = Platform::ALL.iter().map(|p| async move {
-            let c = jar.get(p.as_str(), None).await.unwrap_or_default();
-            (*p, c)
+            let c = jar.get(p.as_str(), None).await?;
+            Ok::<_, crate::ImauthError>((*p, c))
         });
-        let results = futures::future::join_all(fetches).await;
+        let results = futures::future::try_join_all(fetches).await?;
         Ok(results
             .into_iter()
             .map(|(p, c)| (p.as_str().to_string(), p.has_session_cookie(&c)))
@@ -109,7 +108,7 @@ impl GetConnectionStatusUseCase {
 mod tests {
     use super::*;
     use crate::ports::repository::MockCookieRepository;
-    use chrono::TimeZone;
+    use chrono::{Duration, TimeZone, Utc};
 
     fn cookie(name: &str, domain: &str, expires_ts: Option<i64>) -> Cookie {
         Cookie {
@@ -140,19 +139,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn validate_returns_true_with_expires_when_sessionid_present() {
+    async fn update_cookies_discards_domains_outside_the_platform() {
         let mut repo = MockCookieRepository::new();
-        repo.expect_get().return_once(|_, _| {
+        repo.expect_save()
+            .withf(|platform, cookies| {
+                platform == "instagram"
+                    && cookies.len() == 1
+                    && cookies[0].domain == ".instagram.com"
+            })
+            .return_once(|_, _| Ok(()));
+        let uc = UpdateCookiesUseCase::new(Arc::new(repo));
+
+        uc.execute(
+            Platform::Instagram,
+            vec![
+                cookie("sessionid", ".instagram.com", None),
+                cookie("foreign", ".example.com", None),
+            ],
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn validate_returns_true_with_expires_when_sessionid_present() {
+        let expires_at = (Utc::now() + Duration::hours(1)).timestamp();
+        let mut repo = MockCookieRepository::new();
+        repo.expect_get().return_once(move |_, _| {
             Ok(vec![cookie(
                 "sessionid",
                 ".instagram.com",
-                Some(1234567890),
+                Some(expires_at),
             )])
         });
         let uc = ValidateSessionUseCase::new(Arc::new(repo));
         let outcome = uc.execute(Platform::Instagram).await.unwrap();
         assert!(outcome.valid);
-        assert_eq!(outcome.expires_at, 1234567890);
+        assert_eq!(outcome.expires_at, expires_at);
     }
 
     #[tokio::test]
@@ -162,6 +185,38 @@ mod tests {
             .return_once(|_, _| Ok(vec![cookie("csrftoken", ".instagram.com", None)]));
         let uc = ValidateSessionUseCase::new(Arc::new(repo));
         let outcome = uc.execute(Platform::Instagram).await.unwrap();
+        assert!(!outcome.valid);
+        assert_eq!(outcome.expires_at, 0);
+    }
+
+    #[tokio::test]
+    async fn validate_returns_false_for_expired_session_cookie() {
+        let expires_at = (Utc::now() - Duration::hours(1)).timestamp();
+        let mut repo = MockCookieRepository::new();
+        repo.expect_get().return_once(move |_, _| {
+            Ok(vec![cookie(
+                "sessionid",
+                ".instagram.com",
+                Some(expires_at),
+            )])
+        });
+        let uc = ValidateSessionUseCase::new(Arc::new(repo));
+
+        let outcome = uc.execute(Platform::Instagram).await.unwrap();
+
+        assert!(!outcome.valid);
+        assert_eq!(outcome.expires_at, 0);
+    }
+
+    #[tokio::test]
+    async fn validate_returns_false_for_session_cookie_on_wrong_domain() {
+        let mut repo = MockCookieRepository::new();
+        repo.expect_get()
+            .return_once(|_, _| Ok(vec![cookie("sessionid", ".example.com", None)]));
+        let uc = ValidateSessionUseCase::new(Arc::new(repo));
+
+        let outcome = uc.execute(Platform::Instagram).await.unwrap();
+
         assert!(!outcome.valid);
         assert_eq!(outcome.expires_at, 0);
     }
@@ -177,5 +232,30 @@ mod tests {
         let map = uc.execute().await.unwrap();
         assert_eq!(map.get("instagram"), Some(&true));
         assert_eq!(map.get("threads"), Some(&false));
+    }
+
+    #[tokio::test]
+    async fn connection_status_propagates_cookie_repository_errors() {
+        for failing_platform in Platform::ALL {
+            let mut repo = MockCookieRepository::new();
+            repo.expect_get().returning(move |platform, _| {
+                if platform == failing_platform.as_str() {
+                    Err(crate::ImauthError::Database(
+                        failing_platform.as_str().into(),
+                    ))
+                } else {
+                    Ok(vec![])
+                }
+            });
+            let uc = GetConnectionStatusUseCase::new(Arc::new(repo));
+
+            let result = uc.execute().await;
+
+            assert!(matches!(
+                result,
+                Err(crate::ImauthError::Database(message))
+                    if message == failing_platform.as_str()
+            ));
+        }
     }
 }

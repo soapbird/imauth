@@ -52,7 +52,7 @@ message ValidateRequest {
 
 message ValidationResult {
   bool valid = 1;
-  int64 expires_at = 2;  // unix timestamp
+  int64 expires_at = 2; // unix timestamp
   string session_cookie_name = 3;
 }
 

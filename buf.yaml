@@ -1,0 +1,25 @@
+version: v2
+
+modules:
+  - path: proto
+
+lint:
+  use:
+    - STANDARD
+  # Preserve established public RPC message names while applying STANDARD elsewhere.
+  ignore_only:
+    RPC_REQUEST_RESPONSE_UNIQUE:
+      - proto/imauth/v1/credential.proto
+      - proto/imauth/v1/session.proto
+    RPC_REQUEST_STANDARD_NAME:
+      - proto/imauth/v1/auth.proto
+      - proto/imauth/v1/credential.proto
+      - proto/imauth/v1/session.proto
+    RPC_RESPONSE_STANDARD_NAME:
+      - proto/imauth/v1/auth.proto
+      - proto/imauth/v1/credential.proto
+      - proto/imauth/v1/session.proto
+
+breaking:
+  use:
+    - FILE

@@ -1,11 +1,9 @@
 pub mod cookie_repo;
 pub mod credential_repo;
-pub mod refresh_repo;
 pub mod session_repo;
 
 pub use cookie_repo::SqliteCookieRepository;
 pub use credential_repo::SqliteCredentialRepository;
-pub use refresh_repo::SqliteRefreshTokenRepository;
 pub use session_repo::SqliteSessionRepository;
 
 use crate::config::Config;
@@ -77,21 +75,6 @@ pub async fn run_migrations(pool: &SqlitePool) -> Result<()> {
             message TEXT,
             requires_input INTEGER NOT NULL DEFAULT 0,
             input_type TEXT,
-            created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-            updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-        )
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS refresh_tokens (
-            platform TEXT PRIMARY KEY,
-            token_encrypted TEXT NOT NULL,
-            expires_at INTEGER,
-            last_refreshed_at INTEGER,
             created_at INTEGER NOT NULL DEFAULT (unixepoch()),
             updated_at INTEGER NOT NULL DEFAULT (unixepoch())
         )

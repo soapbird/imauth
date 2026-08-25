@@ -1,0 +1,250 @@
+<!DOCTYPE html><html lang="ko" data-i18n-json="/login/js/v4/i18n/global_login.js?v=20260720"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge, chrome=1">
+    <title data-i18n="pageTitle">NAVER 로그인</title>
+    <link rel="stylesheet" type="text/css" href="/login/css/v3/global_login.css?v=20260728">
+    <link rel="stylesheet" type="text/css" href="/login/css/v3/global_login_dark.css" media="(prefers-color-scheme:dark)">
+    <script async="" src="https://ntm.pstatic.net/ex/nlog.js"></script><script async="" src="https://ntm.pstatic.net/scripts/ntm_109a32482d88.js"></script><script type="text/javascript" src="/login/js/srcOnError.js"></script>
+<script type="module" src="https://ssl.pstatic.net/tveta/libs/glad/prod/3.10.7/gfp-display-sdk.js" async=""></script><script type="text/javascript" crossorigin="anonymous" integrity="sha384-63FjuiyIdDyph0iyrKq5k2YCwdX0+lpEnGBeCqjOy3cTlDCXRUEafTHyFQ8LFkVQ" nonce="" src="https://wtm.pstatic.net/1baa7f7/75b49359dca77769598e.js"></script><script type="text/javascript" src="https://ssl.pstatic.net/melona/libs/gfp-nac-module/synchronizer.js" async="" charset="utf-8"></script></head>
+
+<body data-theme="greenLight">
+    <script type="text/javascript" nonce="">try{if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches){document.body.dataset.theme='greenDark';}}catch(e){}</script>
+    <div class="wrap">
+        <div class="u_skip"><a href="#content">본문 바로가기</a></div>
+
+        <div class="container">
+            <main class="inner">
+                <header id="header" class="header" role="banner">
+                    <div class="header_inner">
+                        <div class="naver_logo"><a href="https://www.naver.com" class="logo nlog-click" id="log.naver">
+                            <h1 class="blind" data-i18n="HeaderNaver">네이버</h1>
+                        </a></div>
+                    </div>
+                </header>
+
+                <div id="content" class="content">
+
+                    <div class="content_wrap">
+                        <form class="form" id="frmNIDLogin" name="frmNIDLogin" target="_top" autocomplete="off" action="https://nid.naver.com/nidlogin.login" method="POST">
+                            <input type="hidden" name="dynamicKey" id="dynamicKey" value="_8Inl-aZzymn_PqKCBLttb3WnKta0uBe9AxivqMdCg6pUTjdrpy-1qbW2LqgVRP3BN_Uv3d4OX6tlYyhkpmVv2OJzjULcvUyMK2N-Oh_hnQ">
+
+                            <input type="hidden" name="sessionKey" id="sessionKey" value="[REDACTED]">
+<input type="hidden" name="show_pk" id="show_pk" value="true">
+<input type="hidden" name="wtoken" id="wtoken" value="[REDACTED]">
+<input type="hidden" name="svctype" id="svctype" value="1">
+<input type="hidden" name="bvsd" id="bvsd" value="">
+<input type="hidden" name="locale" id="locale" value="ko_KR">
+<input type="hidden" name="url" id="url" value="https://www.naver.com">
+<input type="hidden" name="eccpw" id="eccpw" value="">
+<input type="hidden" name="template_url" id="template_url" value="%2Fnidlogin.login">
+<input type="hidden" name="enctp" id="enctp" value="19">
+<input type="hidden" name="next_step" id="next_step" value="false">
+<input type="hidden" name="template_type" id="template_type" value="V3_DESKTOP_DEFAULT">
+<input type="hidden" name="smart_LEVEL" id="smart_LEVEL" value="1">
+
+
+                            <ul class="form_list">
+                                <li class="form_id">
+                                    <div class="form_data focus has_label">
+                                        <label for="id" class="input_label" data-i18n="idLabel">아이디 또는 전화번호</label>
+                                        <div class="input_wrap">
+                                            <input id="id" name="id" value="" type="text" aria-label="아이디 또는 전화번호" class="input_text" data-i18n="inputID" maxlength="41" data-input-filter="ascii" placeholder="">
+                                            <div class="btn_input">
+
+                                                <button type="button" class="btn_delete" tabindex="0"><span class="blind">삭제</span></button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </li>
+                                <li class="form_pw">
+                                    <div class="form_data">
+                                        <label for="pw" class="input_label" data-i18n="pwLabel">비밀번호</label>
+                                        <div class="input_wrap">
+                                            <input id="pw" name="pw" type="password" aria-label="비밀번호" class="input_text" data-i18n="inputPW" maxlength="16" data-input-filter="ascii">
+                                            <div class="btn_input">
+                                                <button type="button" class="btn_hide" tabindex="0"><span class="blind" data-i18n="btnHide">비밀번호 표시</span></button>
+                                                <button type="button" class="btn_delete" tabindex="0"><span class="blind" data-i18n="btnDelete">삭제</span></button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </li>
+                            </ul>
+
+                            <div class="form_message" data-case="메시지 == 아이디메시지" role="alert" style="display:none">
+                                <span class="text" data-i18n="idComment">아이디 또는 전화번호를 입력해 주세요.</span>
+                            </div>
+                            <div class="form_message" data-case="메시지 == 패스워드메시지" role="alert" style="display:none">
+                                <span class="text" data-i18n="pwComment">비밀번호를 입력해 주세요.</span>
+                            </div>
+                            <div class="form_message capslock" data-case="메시지 == CapsLock" role="alert" style="display:none">
+                                <span class="text" data-i18n="CapsComment">키보드 왼쪽 대문자 고정(Caps Lock)이 켜져 있어요. 비밀번호를 확인하세요.</span>
+                            </div>
+                            <div class="form_message" data-case="메시지 == 한글입력불가" role="alert" style="display:none">
+                                <span class="text" data-i18n="hangulComment">아이디와 비밀번호에는 영문, 숫자, 특수문자만 입력할 수 있어요.</span>
+                            </div>
+                            <div class="form_message error" data-case="메시지 == 아이디패스키오류메시지" role="alert" style="display:none">
+                                <span class="text" data-i18n="passkeyErrorComment">패스키 로그인에 실패했어요. 다시 시도해 주세요.</span>
+                            </div>
+                            <div class="form_message error" data-case="메시지 == 비번패스키오류메시지" role="alert" style="display:none">
+                                <span class="text" data-i18n="passkeyErrorComment">패스키 로그인에 실패했어요. 다시 시도해 주세요.</span>
+                            </div>
+                            <div class="form_message" data-case="메시지 == 로그아웃메시지" role="alert" style="display:none">
+                                <span class="text" data-i18n="logoutMessage"></span>
+                            </div>
+                            <div class="form_message" data-case="메시지 == QR제한메시지" role="alert" style="display:none">
+                                <span class="text" data-i18n=""></span>
+                            </div>
+                            <div class="form_message error" data-case="메시지 == 비밀번호오류메시지" role="alert" style="display:none">
+                                <span class="text"></span>
+                            </div>
+
+                            <div class="login_option device_view">
+                                <div class="option_inner">
+                                    <div class="option_item stay" tabindex="0">
+                                        <input id="loginStay" type="checkbox" name="nvlong" class="input_stay" role="checkbox" aria-checked="false" value="off">
+                                        <label for="loginStay" class="login_stay" data-i18n="loginStay">로그인 상태 유지</label>
+                                    </div>
+                                    <div class="option_item ip">
+                                        <span class="ip_text" data-i18n="ipSecurity">IP 보안</span>
+                                        <div class="ip_switch" tabindex="0">
+                                            <input id="switchIP" type="checkbox" name="ipcheck" role="switch" aria-checked="true" aria-label="IP 보안" data-i18n-aria="ipSecurityAriaLabel">
+                                            <label for="switchIP" class="slider"><span class="blind">ON</span></label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="btn_form column pc">
+                                <ul class="btn_login_dual">
+                                    <li class="dual_item passkey" style="display: none;">
+                                        <button type="button" class="btn_done" id="passkeyBtn_column">
+                                            <span class="text" data-i18n="btnPasskey">패스키 로그인</span>
+                                        </button>
+                                    </li>
+                                    <li class="dual_item login">
+                                        <button type="button" class="btn_done" id="loginBtn_column">
+                                            <span class="text" data-i18n="btnLogin">로그인</span>
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
+                            <div class="btn_form row pc">
+                                <ul class="btn_login_dual">
+                                    <li class="dual_item passkey" style="display: none;">
+                                        <button type="button" class="btn_done" id="passkeyBtn_row">
+                                            <span class="text" data-i18n="btnPasskeyRow">패스키 로그인</span>
+                                        </button>
+                                    </li>
+                                    <li class="dual_item login">
+                                        <button type="button" class="btn_done" id="loginBtn_row">
+                                            <span class="text" data-i18n="btnLogin">로그인</span>
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
+
+                            <div class="qronetime_link device_view" data-case="다국어 == ko" style="">
+                                <ul class="qronetime_link_list">
+                                    <li class="link_item">
+                                        <a href="#none" id="qrcode_login"><span class="text" data-i18n="qr.link">QR 코드 로그인</span></a>
+                                    </li>
+                                    <li class="link_item">
+                                        <a href="#none" id="onetime_login"><span class="text" data-i18n="no.link">일회용 번호 로그인</span></a>
+                                    </li>
+                                </ul>
+                            </div>
+                            <div class="qronetime_link device_view" data-case="다국어 == en || 다국어 == zh-Hans || 다국어 == zh-Hant || 다국어 == ja || 다국어 == vi" style="display:none">
+                                <ul class="qronetime_link_list">
+                                    <li class="link_item">
+                                        <a href="#none" id="qrcode_login_en"><span class="text link_arrow" data-i18n="qr.link">QR 코드 로그인</span></a>
+                                    </li>
+                                </ul>
+                            </div>
+
+                        </form>
+
+                        <div class="find_wrap">
+                            <ul class="find_list">
+                                <li class="find_item"><a target="_blank" id="idinquiry" href="https://nid.naver.com/user2/api/route?m=routeIdInquiry&amp;lang=ko_KR">
+                                        <span class="find_text" data-i18n="findID">아이디 찾기</span></a></li>
+                                <li class="find_item"><a target="_blank" id="pwinquiry" href="https://nid.naver.com/user2/api/route?m=routePwInquiry&amp;lang=ko_KR">
+                                        <span class="find_text" data-i18n="findPw">비밀번호 찾기</span></a></li>
+                                <li class="find_item"><a target="_blank" id="join" href="https://nid.naver.com/account/signup?lang=ko_KR&amp;realname=N&amp;rurl=https%3A%2F%2Fwww.naver.com">
+                                        <span class="find_text green" data-i18n="findSignup">회원가입</span></a></li>
+                            </ul>
+                        </div>
+
+                        <div class="sns_wrap" data-case="다국어 == en || 다국어 == zh-Hans || 다국어 == zh-Hant || 다국어 == ja || 다국어 == vi" style="display:none">
+                            <ul class="sns_list">
+                                <li class="sns_item">
+                                    <button type="button" id="log.apple" class="icon_apple nlog-click" aria-label="Apple" data-href="/oauth/global/initSNS?idp_cd=apple&amp;locale=ko_KR&amp;svctype=1&amp;postDataKey=&amp;url=https%3A%2F%2Fwww.naver.com&amp;confirm.login=false&amp;cp_cd=&amp;realname=">
+                                        <picture>
+                                            <source srcset="https://ssl.pstatic.net/static/nid/login/icon-apple-dark.svg" media="(prefers-color-scheme: dark)">
+                                            <img src="https://ssl.pstatic.net/static/nid/login/icon-apple.svg" width="48" height="48">
+                                        </picture>
+                                    </button>
+                                </li>
+                                <li class="sns_item">
+                                    <button type="button" id="log.google" class="icon_google nlog-click" aria-label="Google" data-href="/oauth/global/initSNS?idp_cd=google&amp;locale=ko_KR&amp;svctype=1&amp;postDataKey=&amp;url=https%3A%2F%2Fwww.naver.com&amp;confirm.login=false&amp;cp_cd=&amp;realname=">
+                                        <picture>
+                                            <source srcset="https://ssl.pstatic.net/static/nid/login/icon-google-dark.svg" media="(prefers-color-scheme: dark)">
+                                            <img src="https://ssl.pstatic.net/static/nid/login/icon-google.svg" width="48" height="48">
+                                        </picture>
+                                    </button>
+                                </li>
+                                <li class="sns_item">
+                                    <button type="button" id="log.line" class="icon_line nlog-click" aria-label="Line" data-href="/oauth/global/initSNS?idp_cd=line&amp;locale=ko_KR&amp;svctype=1&amp;postDataKey=&amp;url=https%3A%2F%2Fwww.naver.com&amp;confirm.login=false&amp;cp_cd=&amp;realname=">
+                                        <img src="https://ssl.pstatic.net/static/nid/login/icon-line.svg" width="48" height="48">
+                                    </button>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="banner_wrap pc">
+                            <div class="banner_inner" id="log.banner" data-ad-unit="p_member_login" data-case="다국어 == ko" style=""><div style="width: 100%; height: auto; margin: 0px auto; line-height: 0;"><iframe id="log.banner_tgtLREC" frameborder="no" scrolling="no" tabindex="0" name="{&quot;evtType&quot;:&quot;sf-init&quot;,&quot;iFrameId&quot;:&quot;log.banner_tgtLREC&quot;,&quot;isFluid&quot;:true,&quot;adm&quot;:&quot;&lt;script src=\&quot;https://ssl.pstatic.net/tveta/libs/glad/bridge/gfp-bridge.js\&quot;&gt;&lt;/script&gt;\n&lt;style&gt;\n  .image_container_fndqn9b {\n    position: relative;\n  }\n\n  .image_container_fndqn9b .image_link {\n    display: flex;\n    justify-content: center;\n    align-items: center;\n  }\n\n  .image_container_fndqn9b.banner_ad_wrapper img {\n    vertical-align: top;\n  }\n\n  .image_container_fndqn9b.banner_ad_wrapper a {\n    color: inherit;\n    text-decoration: none;\n  }\n&lt;/style&gt;\n&lt;div class=\&quot;image_container_fndqn9b banner_ad_wrapper\&quot;&gt;\n  &lt;a data-ssp=\&quot;clk\&quot; href=\&quot;https://tivan.naver.com/gc/101/P948lURW-lcg-9jqKG-Be8Y2f_6DXihgeQOrN1Zo3kIZLn2gWKJ86IykBrtRC_7YYIVVmsGU0Y-Hf1p1z61hcWQQ-L-PFkpnyNKSmR-73_hUMf-EmQQlDnmt4pwOc24_cEQ7rZrUA7BPoHB0PkhbtZo0u9ah9lSj1MhdWRMG2RyjcGL5fIPzZsFUqwWkbLeHsiyl5t3jdxqoXZ2DEnmQO2kReb7x1-txdybBhacZETuB02JrL2U4069PSvgAGpLI7lBuc2j4IL-DRQev3Ex9RzgS9kBsDI7WpHIyPvv6PV-sx20VGI6wIMyONelSe3qCWhFWd9Cvsc6kZyjdRZJUVmAWsViFpPHXoFbuR1xy8xaIzDKfWhTmTmwv0DyaMQLlPO9Dv7EgXGNG5z_GkwUkNBps7a5OpipP9n4T5m1sJaCFwAQoUGiCecdf1Z7w5o-cQKmgEDmKOUaim_LY4_QmDU5pcP6ZHdFigPeu0vaYvWFrAe2b37Tv0tIlGsYIM6a8VVguBShPmgxx1QIlYa2WeOqFjKFWjomtpcCckOcKqCPHbX9DkZZ-AuNtKpihxWUaQ6uGbcXlt_DjnOQb6s18C2SglszjwKX1OIwOPs3vJdUaA1-5vn4Q1jyOb2h-cBl0MSkFvmRU9DyY7VBumRgWaSCoNvnOihK_ydxzMYajw4uZCtAO0x1_G3eH4o2CGRb0bfIryH-9J8oIufSsNqs9MjG68lNETjF-oljCScg4QcfdK864lp8yOZ1VoXcLUGpTVYtYUodeoIUa8bXRQokAxVYJw2ndSYrjOFO1C-QHjcwAT1g5cXo4e9dhslqypt6TnHxpcRHRsVipFwyMnXa7WwnyMMyvK8WBvUJeincvflEdztMY9t1S0JzA7NAuS4-sPbR-1LMpGpeANZ2ylm2LhmQX050iUYNSNecRLx8q1x7k5U3mTJLZWGcuZpfmrZE5VN54LFGVUg7PFn75b8DO_AwZ7ihOgedyQYd0SM5hSViu-yqFdW_hpryckBNyBsvAcJ4dYSSraQEQ4HK7slYrE5ssSrCi-ONCVrFTlKlqOdwJpadraGMrRszQxTOufWhM0nmrLTc_w4AEkSVmdH7IrHdajeOqV_0qFweoBgMbraB2awKKv0TG8Xe1Q_sOpPAk/NE\&quot; target=\&quot;_blank\&quot; class=\&quot;image_link\&quot;&gt;\n    &lt;img src=\&quot;https://gfd-phinf.pstatic.net/20260821_88/1787296651177klnps_PNG/a70a48f38ca6893cc9fbab170719ed10.png\&quot; alt=\&quot;N+멤버십 멤버십데이 올 여름 2일간의 쇼핑 축제 오픈! 할인 &amp;amp; 특별적립 혜택 진행 중\&quot; class=\&quot;max_width\&quot; style=\&quot;width: 100%; max-width: 920px;\&quot;&gt;\n  &lt;/a&gt;\n&lt;/div&gt;\n&lt;script&gt;\n  (function(){\n    var LOG = {\n        RENDERED: ['https://tivan.naver.com/g/100_200/46U3nNuuVg7-jI5NSHwigaCnn_bGFknh1ovsfs0je3JsnqrXoTkNmRuanITEXSIKpsK6ZeFiSdXSoGRS_I1VsAS97fIRmymFvhb33a2Q8BoCwQ-SKtKRmjlf41j9ic6jcB93-qeWJpv4fB6EIgRSjE2cJwHE7vj5iNIR7d6tjFBo9hLe1yVzghDuhzL9Dk3ql2pQMKGI0UeurMgriLuVyHnpc--rf_vj6yEsznhMnsYAnEGW-YLqOkritQi_vSY7mxWneCgtb57O5z78la4-yYji9FYCyueNL3_BFXQZNCoGd18956nL9GBgD4hs0e-toarOFl5MCXZBENIQ4LRVgRBqliBRDVNHYPKBndgt4PpMsGi8dbScNEdKEUQlYOAIIjipBdA0QqLFktnpw2NEBlvBfH5mQFbNDuB1I4w2LpfABj02UPY9pw3qheIJA02ODJxutew7QCnSecnpR1WP7tUQcV7vGwxKhhbe0_biVaJ2-gDZjhPnvba_vTz-UJ9arcSZ_BJcbIgDxRX8f7wxuvsbnVHhQy8LlMv1Z3_082RpuYoXQad2Qy8WqWKf3KCsBetw2iOXcLVf66OEsx7BcmGY2oD7OzKXMNncke99mAaU24kOtR0SmdE5ajkb1i1YOrOJ2SNZd4ZUTmhAo52b-sMTu-qYOz-0QyHZcSyfCOifVivks8-a1RY0hsUbdeVVBqWaGYQBy2gj40uJpfrsegluswKT6T03F9ki3OwwcA5-SRroyw5C-gwrx1i5sePNG27b4OnbJzSXkHwv-moo8wCvM_K2FKzAOK04sEhORX51ITf539Mfp42VuC5v-Jle2iDQiB03IqLBXzSgb-Q7V4h3n_3XxGis1LpG_olf3k9PSobdu1mUtgognPqFtNMaWq2WkEVSfsfk6uXWiDasbo16WtbLHbD5Jd0Oa_L0ZWQ/NE', ''],         \n        VIEWABLED: ['https://tivan.naver.com/g/103_105_201_205/46U3nNuuVg7-jI5NSHwigaCnn_bGFknh1ovsfs0je3JsnqrXoTkNmRuanITEXSIKpsK6ZeFiSdXSoGRS_I1VsAS97fIRmymFvhb33a2Q8BoCwQ-SKtKRmjlf41j9ic6jcB93-qeWJpv4fB6EIgRSjE2cJwHE7vj5iNIR7d6tjFBo9hLe1yVzghDuhzL9Dk3ql2pQMKGI0UeurMgriLuVyHnpc--rf_vj6yEsznhMnsYAnEGW-YLqOkritQi_vSY7mxWneCgtb57O5z78la4-yYji9FYCyueNL3_BFXQZNCoGd18956nL9GBgD4hs0e-toarOFl5MCXZBENIQ4LRVgRBqliBRDVNHYPKBndgt4PpMsGi8dbScNEdKEUQlYOAIIjipBdA0QqLFktnpw2NEBlvBfH5mQFbNDuB1I4w2LpfABj02UPY9pw3qheIJA02ODJxutew7QCnSecnpR1WP7tUQcV7vGwxKhhbe0_biVaJ2-gDZjhPnvba_vTz-UJ9arcSZ_BJcbIgDxRX8f7wxuvsbnVHhQy8LlMv1Z3_082RpuYoXQad2Qy8WqWKf3KCsBetw2iOXcLVf66OEsx7BcmGY2oD7OzKXMNncke99mAaU24kOtR0SmdE5ajkb1i1YOrOJ2SNZd4ZUTmhAo52b-sMTu-qYOz-0QyHZcSyfCOifVivks8-a1RY0hsUbdeVVBqWaGYQBy2gj40uJpfrsegluswKT6T03F9ki3OwwcA5-SRroyw5C-gwrx1i5sePNG27b4OnbJzSXkHwv-moo8wCvM_K2FKzAOK04sEhORX51ITf539Mfp42VuC5v-Jle2iDQiB03IqLBXzSgb-Q7V4h3n_3XxGis1LpG_olf3k9PSobdu1mUtgognPqFtNMaWq2WkEVSfsfk6uXWiDasbo16WtbLHbD5Jd0Oa_L0ZWQ/NE', ''],\n        CLICK: ''\n    };\n\n    (function(bridge) {   \n      if(!bridge) {\n        return ;\n      }\n\n      var gladSdkBridge = bridge.createSdkBridge();\n      var eventList = {};\n\n      eventList[bridge.EVENT.RENDERED] = function() {\n          for (var i = 0; i &lt; LOG.RENDERED.length; i ++) {\n            if(!!LOG.RENDERED[i]) {\n              log(LOG.RENDERED[i]);\n            }\n          }\n      };\n\n      eventList[bridge.EVENT.VIEWABLED] = function() {\n          for (var i = 0; i &lt; LOG.VIEWABLED.length; i ++) {\n            if(!!LOG.VIEWABLED[i]) {\n              log(LOG.VIEWABLED[i]);\n            }\n          }\n      };\n\n      gladSdkBridge.setEventListeners(eventList);\n    })(\n        window.gladBridge\n    );\n\n    if(typeof document.querySelector === 'function'){\n      var imageContainer = document.querySelector('.image_container_fndqn9b');\n\n      if(!!imageContainer &amp;&amp; typeof imageContainer.addEventListener === 'function' &amp;&amp; !!LOG.CLICK){\n        imageContainer.addEventListener('click', function() {\n          log(LOG.CLICK);\n        })\n      }\n    }\n\n    function log(value){\n        var beacon = document.createElement('img');\n        beacon.width = 1;\n        beacon.height = 1;\n        beacon.src = value;\n    }\n  })();\n&lt;/script&gt;&quot;,&quot;sourceOrigin&quot;:&quot;https://nid.naver.com&quot;,&quot;msgToken&quot;:&quot;2531305787.078616&quot;,&quot;hostMeta&quot;:{},&quot;parInfo&quot;:{&quot;innerWidth&quot;:1280,&quot;innerHeight&quot;:720,&quot;pageXOffset&quot;:0,&quot;pageYOffset&quot;:0,&quot;screenWidth&quot;:1280,&quot;screenHeight&quot;:720,&quot;bodyClientWidth&quot;:1280,&quot;bodyClientHeight&quot;:720,&quot;offsetTop&quot;:693,&quot;offsetLeft&quot;:410},&quot;adMuteLibUrl&quot;:&quot;https://ssl.pstatic.net/melona/libs/glad_admute/stg/glad-admute.js&quot;,&quot;initialAdMuteState&quot;:&quot;init&quot;,&quot;creativeType&quot;:&quot;BANNER&quot;,&quot;hasClickHandler&quot;:false,&quot;crid&quot;:&quot;6a87a613e4a01a934bb5123f&quot;}" title="AD" sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-top-navigation-by-user-activation" src="https://ssl.pstatic.net/tveta/libs/glad/prod/3.10.7/res/r.html" style="width: 100%; height: 0px; visibility: inherit; border: 0px; vertical-align: bottom;"></iframe></div></div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <footer class="footer">
+                    <ul class="footer_list" role="contentinfo">
+                        <li class="footer_item"><a href="https://nca.naver.com/chat/account/view" target="_blank" id="fot.smartbot" class="text nlog-click" data-i18n="footer.chatbot">스마트봇 상담</a></li>
+                        <li class="footer_item"><a href="https://help.naver.com/service/5640/category/bookmark?lang=ko" target="_blank" id="fot.help" class="text nlog-click" data-i18n="footer.help">고객센터</a></li>
+                        <li class="footer_item language">
+                            <button type="button" class="language_text" role="listbox" aria-expanded="false" aria-label="언어선택">한국어</button>
+                            <ul class="language_list">
+                                <li class="language_item"><button class="btn_language" data-lang="ko">한국어</button></li>
+                                <li class="language_item"><button class="btn_language" data-lang="en">English</button></li>
+                                <li class="language_item"><button class="btn_language hans" data-lang="zh-Hans">中文(简体)</button></li>
+                                <li class="language_item"><button class="btn_language hant" data-lang="zh-Hant">中文(繁體)</button></li>
+                                <li class="language_item"><button class="btn_language ja" data-lang="ja">日本語</button></li>
+                                <li class="language_item"><button class="btn_language" data-lang="vi">Tiếng Việt</button></li>
+                            </ul>
+                        </li>
+                    </ul>
+                    <div class="footer_copyright">
+                        <span class="copyright">© NAVER Corp.</span>
+                    </div>
+                </footer>
+
+            </main>
+        </div>
+    </div>
+    <input type="hidden" id="nclicks_nsc" name="nclicks_nsc" value="nid.login_kr">
+    <input type="hidden" id="removeLink" name="removeLink" value="">
+    <input type="hidden" id="hide_util" name="hide_util" value="">
+    <input type="hidden" id="ncaptchaSplit" name="ncaptchaSplit" value="none">
+    <input type="hidden" id="onload_pk" name="onload_pk" value="false">
+    <input type="hidden" id="locale" name="locale" value="ko_KR">
+    <input type="hidden" id="adult_surl_v2" name="adult_surl_v2" value="">
+    <input type="hidden" id="ispopup" name="ispopup" value="false">
+    <input type="hidden" id="isPc" value="true">
+    <div id="nv_stat" style="display:none;">20</div>
+        <script type="text/javascript" async="" src="https://ssl.pstatic.net/tveta/libs/glad/prod/gfp-core.js"></script>
+    <script type="text/javascript" src="/passkey/js/passkeyApi.js?v=20251201"></script>
+    <script type="text/javascript" src="/login/js/v4/pages/login.js?v=20260729"></script>
+    <script type="text/javascript" src="https://ncpt.naver.com/static/ncaptcha-api.js?ncaptcha-sitekey=6e3d93f4f845d053db08d51e2eb36ca3efe03fea21f21ee8d02e60ef10f6b73a15e951eccc1ef4b866ab3ce4" ncaptcha-onload="initNcaptcha" async="" defer=""></script>
+
+
+
+<iframe id="ncaptcha-iframe-lc4eyn" src="https://wtm.pstatic.net/1baa7f7/iframe.html" style="display: none; width: 0px; height: 0px;"></iframe></body></html>

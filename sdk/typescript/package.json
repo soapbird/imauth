@@ -1,19 +1,36 @@
 {
   "name": "@imlinks/imauth",
-  "version": "0.4.1",
+  "version": "0.7.0",
   "description": "TypeScript SDK for imauth",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "proto"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/imyounjs/imauth.git",
+    "directory": "sdk/typescript"
+  },
   "scripts": {
+    "prepare:proto": "node scripts/copy-proto.mjs",
+    "prebuild": "npm run prepare:proto",
     "build": "tsc",
+    "pretest": "npm run prepare:proto",
     "test": "jest",
-    "lint": "eslint src/"
+    "prepack": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && npm run build",
+    "prepublishOnly": "npm run test && npm run build",
+    "lint": "biome lint src tests jest.config.js",
+    "format": "biome format --write src tests jest.config.js package.json tsconfig.json biome.json",
+    "format:check": "biome format src tests jest.config.js package.json tsconfig.json biome.json"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.10.0",
     "@grpc/proto-loader": "^0.7.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.10",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
     "jest": "^29.7.0",

@@ -2,10 +2,8 @@
 target/
 *.rs.bk
 
-# Generated protobuf code
+# Generated Rust protobuf code
 crates/imauth-proto/src/generated/imauth.v1.rs
-sdk/python/imauth/v1/*_pb2.py
-sdk/python/imauth/v1/*_pb2_grpc.py
 
 # IDE
 .idea/
@@ -20,13 +18,22 @@ Thumbs.db
 
 # Test/data
 .imauth/
+datasource/records/*/raw/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
+.coverage
+coverage.xml
+htmlcov/
 
 # Python SDK
 sdk/python/**/__pycache__/
 sdk/python/*.egg-info/
 sdk/python/.pytest_cache/
+sdk/python/.ruff_cache/
+sdk/python/.mypy_cache/
+sdk/python/.basedpyright/
 sdk/python/dist/
 sdk/python/build/
 sdk/python/uv.lock
@@ -34,13 +41,19 @@ sdk/python/uv.lock
 # TypeScript SDK
 sdk/typescript/node_modules/
 sdk/typescript/dist/
+sdk/typescript/coverage/
+sdk/typescript/proto/
 sdk/typescript/*.log
 
 # Secrets
 .env
 
 # Local tool directories
+.codegraph/
+.omo/
 .omx/
 .venv/
 **/.venv/
 .gstack/
+.gjc/
+.debug-journal.md

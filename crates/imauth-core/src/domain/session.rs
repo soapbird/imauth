@@ -31,17 +31,18 @@ impl std::fmt::Display for SessionState {
 }
 
 impl std::str::FromStr for SessionState {
-    type Err = ();
+    type Err = String;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        Ok(match s {
-            "loading" => SessionState::Loading,
-            "authenticating" => SessionState::Authenticating,
-            "waiting_for_user" => SessionState::WaitingForUser,
-            "connected" => SessionState::Connected,
-            "failed" => SessionState::Failed,
-            _ => SessionState::Idle,
-        })
+        match s {
+            "idle" => Ok(SessionState::Idle),
+            "loading" => Ok(SessionState::Loading),
+            "authenticating" => Ok(SessionState::Authenticating),
+            "waiting_for_user" => Ok(SessionState::WaitingForUser),
+            "connected" => Ok(SessionState::Connected),
+            "failed" => Ok(SessionState::Failed),
+            _ => Err(format!("unknown session state: {s}")),
+        }
     }
 }
 
@@ -146,5 +147,14 @@ mod tests {
     #[test]
     fn display_renders_snake_case() {
         assert_eq!(SessionState::WaitingForUser.to_string(), "waiting_for_user");
+    }
+
+    #[test]
+    fn from_str_rejects_unknown_state() {
+        assert_eq!("idle".parse(), Ok(SessionState::Idle));
+        assert_eq!(
+            "corrupt".parse::<SessionState>(),
+            Err("unknown session state: corrupt".to_string())
+        );
     }
 }

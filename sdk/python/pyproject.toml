@@ -1,12 +1,12 @@
 [project]
 name = "imauth"
-version = "0.4.1"
+version = "0.7.0"
 description = "Python SDK for imauth — social auth manager"
 requires-python = ">=3.10"
 dependencies = [
-    "grpcio>=1.60",
-    "grpcio-tools>=1.60",
+    "grpcio>=1.76.0,<2",
     "pydantic>=2.0",
+    "protobuf>=6.31.1,<7",
 ]
 
 [project.scripts]
@@ -21,5 +21,46 @@ packages = ["imauth"]
 
 [dependency-groups]
 dev = [
+    "anyio>=4.0",
+    "basedpyright==1.39.0",
+    "grpcio-tools==1.76.0",
     "pytest>=9.0.3",
+    "ruff==0.16.4",
 ]
+
+[tool.basedpyright]
+pythonVersion = "3.10"
+exclude = ["imauth/v1"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+extend-exclude = ["imauth/v1"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "ANN",
+    "COM812",
+    "CPY001",
+    "D",
+    "D203",
+    "D213",
+    "ISC001",
+    "T201",
+    "TRY300",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "ARG",
+    "INP001",
+    "PLC0415",
+    "PLR2004",
+    "S101",
+    "S105",
+    "SLF001",
+]
+
+[tool.ruff.format]
+docstring-code-format = true

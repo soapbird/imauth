@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+project_python=python3
+
+if [ -x "$repo_root/sdk/python/.venv/bin/python" ]; then
+	project_python="$repo_root/sdk/python/.venv/bin/python"
+fi
+
+echo "Running project lint and format checks..."
+make -C "$repo_root" quality "PYTHON=$project_python"

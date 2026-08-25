@@ -6,7 +6,9 @@ pub struct ServerConfig {
     #[serde(default = "default_grpc_addr")]
     pub grpc_addr: String,
     #[serde(default)]
-    pub metrics_port: Option<u16>,
+    pub tls_cert_path: Option<PathBuf>,
+    #[serde(default)]
+    pub tls_key_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -32,21 +34,11 @@ pub struct BrowserConfig {
 pub struct StorageConfig {
     #[serde(default = "default_data_dir")]
     pub data_dir: PathBuf,
-    #[serde(default)]
-    pub database_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SecurityConfig {
     pub encryption_key: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RefreshConfig {
-    #[serde(default = "default_interval_secs")]
-    pub interval_secs: u64,
-    #[serde(default = "default_retry_max")]
-    pub retry_max: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,8 +51,6 @@ pub struct Config {
     pub storage: StorageConfig,
     #[serde(default)]
     pub security: SecurityConfig,
-    #[serde(default)]
-    pub refresh: RefreshConfig,
 }
 
 fn default_grpc_addr() -> String {
@@ -101,20 +91,13 @@ fn expand_tilde(path: PathBuf) -> PathBuf {
     }
 }
 
-fn default_interval_secs() -> u64 {
-    3600
-}
-
-fn default_retry_max() -> u32 {
-    3
-}
-
 impl Default for Config {
     fn default() -> Self {
         Self {
             server: ServerConfig {
                 grpc_addr: default_grpc_addr(),
-                metrics_port: None,
+                tls_cert_path: None,
+                tls_key_path: None,
             },
             browser: BrowserConfig {
                 cdp_url: default_cdp_url(),
@@ -126,14 +109,9 @@ impl Default for Config {
             },
             storage: StorageConfig {
                 data_dir: default_data_dir(),
-                database_url: None,
             },
             security: SecurityConfig {
                 encryption_key: None,
-            },
-            refresh: RefreshConfig {
-                interval_secs: default_interval_secs(),
-                retry_max: default_retry_max(),
             },
         }
     }
@@ -159,6 +137,12 @@ impl Config {
         if let Ok(addr) = std::env::var("IMAUTH_GRPC_ADDR") {
             self.server.grpc_addr = addr;
         }
+        if let Ok(path) = std::env::var("IMAUTH_TLS_CERT_PATH") {
+            self.server.tls_cert_path = normalize_path(path);
+        }
+        if let Ok(path) = std::env::var("IMAUTH_TLS_KEY_PATH") {
+            self.server.tls_key_path = normalize_path(path);
+        }
         if let Ok(url) = std::env::var("IMAUTH_CDP_URL") {
             self.browser.cdp_url = url;
         }
@@ -179,9 +163,6 @@ impl Config {
                 self.browser.login_timeout_secs = s;
             }
         }
-        if let Ok(url) = std::env::var("IMAUTH_DATABASE_URL") {
-            self.storage.database_url = Some(url);
-        }
         if self.security.encryption_key.as_deref() == Some("") {
             self.security.encryption_key = None;
         }
@@ -196,6 +177,21 @@ impl Config {
 
     pub fn grpc_addr(&self) -> &str {
         &self.server.grpc_addr
+    }
+
+    pub fn tls_identity_paths(
+        &self,
+    ) -> crate::Result<Option<(&std::path::Path, &std::path::Path)>> {
+        match (
+            self.server.tls_cert_path.as_deref(),
+            self.server.tls_key_path.as_deref(),
+        ) {
+            (None, None) => Ok(None),
+            (Some(cert), Some(key)) => Ok(Some((cert, key))),
+            (Some(_), None) | (None, Some(_)) => Err(crate::ImauthError::Config(
+                "TLS certificate and key paths must be configured together".to_string(),
+            )),
+        }
     }
 
     pub fn cdp_url(&self) -> &str {
@@ -242,37 +238,17 @@ impl Config {
         self.storage.data_dir.join("imauth.db")
     }
 
-    pub fn cookies_dir(&self) -> PathBuf {
-        self.storage.data_dir.join("cookies")
-    }
-
-    pub fn snapshot_dir(&self) -> PathBuf {
-        self.storage.data_dir.join("snapshots")
-    }
-
     pub fn encryption_key(&self) -> Option<&str> {
         self.security.encryption_key.as_deref()
     }
+}
 
-    pub fn refresh_interval_secs(&self) -> u64 {
-        self.refresh.interval_secs
-    }
-
-    pub fn refresh_retry_max(&self) -> u32 {
-        self.refresh.retry_max
-    }
-
-    /// Returns the configured database URL, or a SQLite file path when unset.
-    pub fn database_url(&self) -> String {
-        if let Some(ref url) = self.storage.database_url {
-            url.clone()
-        } else {
-            format!("sqlite:{}", self.db_path().display())
-        }
-    }
-
-    pub fn metrics_port(&self) -> Option<u16> {
-        self.server.metrics_port
+fn normalize_path(value: String) -> Option<PathBuf> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(trimmed))
     }
 }
 
@@ -297,12 +273,13 @@ mod tests {
     fn clear_env() {
         for k in [
             "IMAUTH_GRPC_ADDR",
+            "IMAUTH_TLS_CERT_PATH",
+            "IMAUTH_TLS_KEY_PATH",
             "IMAUTH_CDP_URL",
             "IMAUTH_CDP_URLS",
             "IMAUTH_ENCRYPTION_KEY",
             "IMAUTH_DATA_DIR",
             "IMAUTH_BROWSER_VIEWER_URLS",
-            "IMAUTH_DATABASE_URL",
         ] {
             std::env::remove_var(k);
         }
@@ -316,8 +293,6 @@ mod tests {
         assert_eq!(cfg.max_pool_size(), 3);
         assert_eq!(cfg.page_timeout_secs(), 30);
         assert!(cfg.encryption_key().is_none());
-        assert_eq!(cfg.refresh_interval_secs(), 3600);
-        assert_eq!(cfg.refresh_retry_max(), 3);
     }
 
     #[test]
@@ -325,11 +300,6 @@ mod tests {
         let mut cfg = Config::default();
         cfg.storage.data_dir = PathBuf::from("/tmp/imauth-test");
         assert_eq!(cfg.db_path(), PathBuf::from("/tmp/imauth-test/imauth.db"));
-        assert_eq!(cfg.cookies_dir(), PathBuf::from("/tmp/imauth-test/cookies"));
-        assert_eq!(
-            cfg.snapshot_dir(),
-            PathBuf::from("/tmp/imauth-test/snapshots")
-        );
     }
 
     #[test]
@@ -494,9 +464,58 @@ max_pool_size = 7
         assert_eq!(parsed.grpc_addr(), original.grpc_addr());
         assert_eq!(parsed.cdp_url(), original.cdp_url());
         assert_eq!(parsed.max_pool_size(), original.max_pool_size());
-        assert_eq!(
-            parsed.refresh_interval_secs(),
-            original.refresh_interval_secs()
-        );
+    }
+
+    #[test]
+    fn tls_identity_paths_returns_none_when_tls_is_not_configured() {
+        // Given: the default plaintext configuration.
+        let cfg = Config::default();
+
+        // When: TLS identity paths are resolved.
+        let paths = cfg.tls_identity_paths().unwrap();
+
+        // Then: TLS remains disabled.
+        assert!(paths.is_none());
+    }
+
+    #[test]
+    fn tls_identity_paths_returns_pair_when_both_paths_are_configured() {
+        // Given: matching server certificate and key paths.
+        let mut cfg = Config::default();
+        cfg.server.tls_cert_path = Some(PathBuf::from("server.pem"));
+        cfg.server.tls_key_path = Some(PathBuf::from("server.key"));
+
+        // When: TLS identity paths are resolved.
+        let paths = cfg.tls_identity_paths().unwrap().unwrap();
+
+        // Then: the exact configured pair is returned.
+        assert_eq!(paths.0, std::path::Path::new("server.pem"));
+        assert_eq!(paths.1, std::path::Path::new("server.key"));
+    }
+
+    #[test]
+    fn tls_identity_paths_rejects_an_unpaired_certificate() {
+        // Given: only a server certificate path.
+        let mut cfg = Config::default();
+        cfg.server.tls_cert_path = Some(PathBuf::from("server.pem"));
+
+        // When: TLS identity paths are resolved.
+        let error = cfg.tls_identity_paths().unwrap_err();
+
+        // Then: configuration fails before the server starts.
+        assert!(error.to_string().contains("TLS certificate and key"));
+    }
+
+    #[test]
+    fn tls_identity_paths_rejects_an_unpaired_key() {
+        // Given: only a server private-key path.
+        let mut cfg = Config::default();
+        cfg.server.tls_key_path = Some(PathBuf::from("server.key"));
+
+        // When: TLS identity paths are resolved.
+        let error = cfg.tls_identity_paths().unwrap_err();
+
+        // Then: configuration fails before the server starts.
+        assert!(error.to_string().contains("TLS certificate and key"));
     }
 }

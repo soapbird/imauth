@@ -1,14 +1,15 @@
 PROJECT   := imauth
-REGISTRY  ?= docker.io/imyounjs
+REGISTRY  ?= docker.lowapple.io
 IMAGE     := $(REGISTRY)/$(PROJECT)
-CHROME_IMAGE       ?= imyounjs/chrome
-CHROME_PROXY_IMAGE ?= imyounjs/chrome-proxy
-VERSION   := $(shell grep '^version' crates/imauth-server/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+CHROME_IMAGE ?= $(REGISTRY)/$(PROJECT)-chrome
+CHROME_PROXY_IMAGE ?= $(REGISTRY)/$(PROJECT)-chrome-proxy
+VERSION   := $(shell tr -d '[:space:]' < VERSION)
 GIT_HASH  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 PLATFORMS := linux/amd64,linux/arm64
 BUILDER   ?= imauth-builder
+PYTHON    ?= $(if $(wildcard sdk/python/.venv/bin/python),$(CURDIR)/sdk/python/.venv/bin/python,python3)
 
-.PHONY: all build test lint fmt check clean proto buildx-setup docker docker-chrome docker-chrome-proxy docker-push docker-chrome-push docker-chrome-proxy-push docker-buildx docker-chrome-buildx docker-chrome-proxy-buildx deploy deploy-chrome deploy\:chrome deploy-chrome-proxy deploy\:chrome-proxy deploy-chrome-amd64 deploy-chrome-arm64 deploy-chrome-fast deploy-all up down
+.PHONY: all build test lint fmt format-check quality install-hooks check clean proto buildx-setup docker docker-chrome docker-chrome-proxy docker-push docker-chrome-push docker-chrome-proxy-push docker-buildx docker-chrome-buildx docker-chrome-proxy-buildx deploy deploy-chrome deploy\:chrome deploy-chrome-proxy deploy\:chrome-proxy deploy-chrome-amd64 deploy-chrome-arm64 deploy-chrome-fast deploy-all up down
 
 # Create (once) a docker-container builder so multi-platform builds can
 # export/import a registry layer cache. The default `docker` driver cannot,
@@ -27,9 +28,26 @@ test:
 
 lint:
 	cargo clippy --workspace -- -D warnings
+	$(MAKE) -C sdk/python lint PYTHON=$(PYTHON)
+	npm --prefix sdk/typescript run lint
 
 fmt:
 	cargo fmt --all
+	$(MAKE) -C sdk/python generate format PYTHON=$(PYTHON)
+	npm --prefix sdk/typescript run format
+
+format-check:
+	cargo fmt --all -- --check
+	$(MAKE) -C sdk/python generate format-check PYTHON=$(PYTHON)
+	npm --prefix sdk/typescript run format:check
+
+quality:
+	$(MAKE) format-check PYTHON=$(PYTHON)
+	$(MAKE) lint PYTHON=$(PYTHON)
+
+install-hooks:
+	git config core.hooksPath .githooks
+	@echo "Git hooks installed from .githooks"
 
 check:
 	cargo check --workspace

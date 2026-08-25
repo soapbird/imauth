@@ -7,6 +7,8 @@ use chromiumoxide::page::Page;
 use serde::de::DeserializeOwned;
 use std::time::Duration;
 
+const COOKIE_READ_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub struct ChromiumOxidePageDriver {
     page: tokio::sync::Mutex<Option<Page>>,
 }
@@ -59,14 +61,22 @@ impl PageDriver for ChromiumOxidePageDriver {
     }
 
     async fn get_cookies(&self) -> Result<Vec<Cookie>> {
-        let guard = self.page.lock().await;
-        let page = guard
-            .as_ref()
-            .ok_or_else(|| ImauthError::Browser("get_cookies: page already closed".into()))?;
-        let cookies = page
-            .get_cookies()
-            .await
-            .map_err(|e| ImauthError::Browser(format!("Failed to get cookies: {e}")))?;
+        let cookies = tokio::time::timeout(COOKIE_READ_TIMEOUT, async {
+            let guard = self.page.lock().await;
+            let page = guard
+                .as_ref()
+                .ok_or_else(|| ImauthError::Browser("get_cookies: page already closed".into()))?;
+            page.get_cookies()
+                .await
+                .map_err(|e| ImauthError::Browser(format!("Failed to get cookies: {e}")))
+        })
+        .await
+        .map_err(|_| {
+            ImauthError::Browser(format!(
+                "Cookie read timed out after {}s",
+                COOKIE_READ_TIMEOUT.as_secs()
+            ))
+        })??;
 
         Ok(cookies
             .into_iter()

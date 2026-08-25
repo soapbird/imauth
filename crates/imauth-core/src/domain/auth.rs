@@ -19,7 +19,7 @@ pub fn classify_auth_state(cookies: Vec<Cookie>, platform: Platform) -> AuthChec
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use chrono::{Duration, Utc};
 
     fn cookie(name: &str, domain: &str) -> Cookie {
         Cookie {
@@ -27,7 +27,7 @@ mod tests {
             value: "v".into(),
             domain: domain.into(),
             path: "/".into(),
-            expires: Some(Utc::now()),
+            expires: Some(Utc::now() + Duration::hours(1)),
             http_only: false,
             secure: true,
         }

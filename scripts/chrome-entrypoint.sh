@@ -24,6 +24,7 @@ printf '#!/usr/bin/env bash\nexit 0\n' >/usr/bin/desktop_ready
 chmod +x /usr/bin/desktop_ready
 
 cat > /tmp/browser-cdp-relay.py <<'PY'
+import os
 import shutil
 import socket
 import socketserver
@@ -68,7 +69,8 @@ class Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-Server(("0.0.0.0", 9223), Relay).serve_forever()
+bind_address = os.environ.get("CDP_RELAY_BIND_ADDR") or socket.gethostbyname(socket.gethostname())
+Server((bind_address, 9223), Relay).serve_forever()
 PY
 
 runuser -u kasm-user -- python3 /tmp/browser-cdp-relay.py &
