@@ -8,7 +8,7 @@ x-chrome: &chrome
     # in the chrome image (-SecurityTypes None), so login is always immediate.
     VNC_PW: imauth
   healthcheck: &chrome-healthcheck
-    test: ["CMD", "curl", "-f", "http://localhost:9223/json/version"]
+    test: ["CMD-SHELL", "curl -f http://$$(hostname -i | awk '{print $$1}'):9223/json/version"]
     interval: 3s
     timeout: 5s
     retries: 10
