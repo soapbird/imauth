@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-27
+
+### Fixed
+- Novelpia browser login now recognizes a standard authenticated session from
+  `USERKEY`, `LOGINKEY`, and `ISLOGIN=1`, while still accepting `AUTOLOGIN` and
+  rejecting anonymous bootstrap cookies.
+
 ## [0.7.0] - 2026-08-25
 
 ### Added
