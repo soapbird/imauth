@@ -1236,7 +1236,7 @@ dependencies = [
 
 [[package]]
 name = "imauth-cli"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "clap",
  "dotenvy",
@@ -1251,7 +1251,7 @@ dependencies = [
 
 [[package]]
 name = "imauth-core"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -1277,7 +1277,7 @@ dependencies = [
 
 [[package]]
 name = "imauth-proto"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "prost",
  "tonic",
@@ -1286,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "imauth-server"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "async-trait",
  "chrono",
