@@ -90,9 +90,9 @@ Release images are published to `docker.lowapple.io` on every `v*` tag:
 
 ```bash
 # Pull a specific release (or :latest)
-docker pull docker.lowapple.io/imauth:v0.7.0
-docker pull docker.lowapple.io/imauth-chrome:v0.7.0
-docker pull docker.lowapple.io/imauth-chrome-proxy:v0.7.0
+docker pull docker.lowapple.io/imauth:v0.7.1
+docker pull docker.lowapple.io/imauth-chrome:v0.7.1
+docker pull docker.lowapple.io/imauth-chrome-proxy:v0.7.1
 ```
 
 Local image builds use the Makefile:

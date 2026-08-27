@@ -86,16 +86,39 @@ impl Platform {
     }
 
     pub fn session_cookie<'a>(&self, cookies: &'a [Cookie]) -> Option<&'a Cookie> {
+        if *self == Platform::Novelpia {
+            let login_key = self.active_cookie(cookies, "LOGINKEY")?;
+            if login_key.value.is_empty()
+                || self
+                    .active_cookie(cookies, "USERKEY")
+                    .is_none_or(|cookie| cookie.value.is_empty())
+            {
+                return None;
+            }
+
+            return self
+                .active_cookie(cookies, "AUTOLOGIN")
+                .filter(|cookie| !cookie.value.is_empty())
+                .or_else(|| {
+                    self.active_cookie(cookies, "ISLOGIN")
+                        .filter(|cookie| cookie.value == "1")
+                });
+        }
+
         let name = self.session_cookie_name();
-        cookies.iter().find(|c| {
-            c.name == name
-                && self.cookie_matches_domain(c)
-                && c.expires.is_none_or(|expires| expires > Utc::now())
-        })
+        self.active_cookie(cookies, name)
     }
 
     pub fn has_session_cookie(&self, cookies: &[Cookie]) -> bool {
         self.session_cookie(cookies).is_some()
+    }
+
+    fn active_cookie<'a>(&self, cookies: &'a [Cookie], name: &str) -> Option<&'a Cookie> {
+        cookies.iter().find(|cookie| {
+            cookie.name == name
+                && self.cookie_matches_domain(cookie)
+                && cookie.expires.is_none_or(|expires| expires > Utc::now())
+        })
     }
 }
 
@@ -277,9 +300,45 @@ mod tests {
     }
 
     #[test]
-    fn novelpia_has_session_cookie_when_autologin_is_present() {
-        let cookies = vec![cookie("AUTOLOGIN", ".novelpia.com")];
+    fn novelpia_has_session_cookie_when_autologin_session_is_present() {
+        let cookies = vec![
+            cookie("LOGINKEY", ".novelpia.com"),
+            cookie("USERKEY", ".novelpia.com"),
+            cookie("AUTOLOGIN", ".novelpia.com"),
+        ];
         assert!(Platform::Novelpia.has_session_cookie(&cookies));
+    }
+
+    #[test]
+    fn novelpia_has_session_cookie_when_current_login_marker_is_present() {
+        let cookies = vec![
+            cookie("LOGINKEY", ".novelpia.com"),
+            cookie("USERKEY", ".novelpia.com"),
+            Cookie {
+                value: "1".into(),
+                ..cookie("ISLOGIN", ".novelpia.com")
+            },
+        ];
+        assert!(Platform::Novelpia.has_session_cookie(&cookies));
+    }
+
+    #[test]
+    fn novelpia_rejects_invalid_current_login_marker() {
+        let cookies = vec![
+            cookie("LOGINKEY", ".novelpia.com"),
+            cookie("USERKEY", ".novelpia.com"),
+            Cookie {
+                value: "0".into(),
+                ..cookie("ISLOGIN", ".novelpia.com")
+            },
+        ];
+        assert!(!Platform::Novelpia.has_session_cookie(&cookies));
+    }
+
+    #[test]
+    fn novelpia_rejects_autologin_without_identity_cookies() {
+        let cookies = vec![cookie("AUTOLOGIN", ".novelpia.com")];
+        assert!(!Platform::Novelpia.has_session_cookie(&cookies));
     }
 
     #[test]
