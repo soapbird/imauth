@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 
 const SESSION_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const TARGET_READY_RETRY_INTERVAL: Duration = Duration::from_millis(10);
-const TARGET_READY_MAX_ATTEMPTS: u32 = 100;
+const TARGET_READY_BUDGET: Duration = Duration::from_secs(1);
 
 /// A single Chrome instance with its own CDP connection, semaphore, and viewer URL.
 pub struct ChromeSlot {
@@ -100,8 +100,8 @@ impl ChromeSlot {
                 false,
             )
         };
+        let readiness_deadline = tokio::time::Instant::now() + TARGET_READY_BUDGET;
         for target_id in pending_targets {
-            let mut attempts = 0u32;
             loop {
                 let ready = match browser.get_page(target_id.clone()).await {
                     Ok(page) => page.url().await.is_ok(),
@@ -110,10 +110,10 @@ impl ChromeSlot {
                 if ready {
                     break;
                 }
-                attempts += 1;
-                if !require_ready && attempts >= TARGET_READY_MAX_ATTEMPTS {
-                    // An unrelated tab that closed or never became ready must
-                    // not hold the browser slot until the connect timeout.
+                if !require_ready && tokio::time::Instant::now() >= readiness_deadline {
+                    // Unrelated tabs share one readiness budget so closed or
+                    // stuck tabs cannot hold the slot until the connect
+                    // timeout, no matter how many there are.
                     break;
                 }
                 tokio::time::sleep(TARGET_READY_RETRY_INTERVAL).await;

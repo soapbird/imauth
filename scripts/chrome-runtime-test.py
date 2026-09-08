@@ -150,6 +150,13 @@ def test_given_two_relay_servers_when_created_then_handlers_are_isolated() -> No
         second_lifecycle.close()
 
 
+def cdp_probe(body: bytes = b'{"Browser": "Chromium/139.0"}') -> mock.MagicMock:
+    probe = mock.MagicMock()
+    probe.__enter__.return_value = probe
+    probe.recv.return_value = body
+    return probe
+
+
 def test_given_orphaned_desktop_when_starting_then_locks_stay_and_no_relaunch() -> (
     None
 ):
@@ -160,13 +167,15 @@ def test_given_orphaned_desktop_when_starting_then_locks_stay_and_no_relaunch() 
     desktop._process = dead_supervisor
 
     with (
-        mock.patch.object(runtime.socket, "create_connection", return_value=mock.MagicMock()),
-        mock.patch.object(runtime.Path, "glob") as glob,
+        mock.patch.object(
+            runtime.socket, "create_connection", return_value=cdp_probe()
+        ),
+        mock.patch.object(runtime.DesktopProcess, "_adopt_owned_pids") as adopt,
         mock.patch.object(runtime.subprocess, "Popen") as popen,
     ):
         desktop.start()
 
-    glob.assert_not_called()
+    adopt.assert_called_once()
     popen.assert_not_called()
 
 
@@ -184,15 +193,53 @@ def test_given_half_dead_desktop_when_starting_then_stop_runs_before_relaunch() 
         mock.patch.object(
             runtime.socket,
             "create_connection",
-            side_effect=[OSError(), mock.MagicMock()],
+            side_effect=[OSError(), cdp_probe()],
         ),
         mock.patch.object(runtime.DesktopProcess, "_owned_pids", return_value=[123]),
-        mock.patch.object(runtime.Path, "glob", return_value=[]),
         mock.patch.object(runtime.subprocess, "Popen", return_value=launched),
     ):
         desktop.start()
 
     assert stops == ["stop"]
+
+
+def test_given_non_cdp_listener_when_starting_then_not_adopted() -> None:
+    runtime = load_runtime()
+    desktop = runtime.DesktopProcess(1000)
+    launched = mock.Mock()
+    launched.poll.return_value = None
+    calls = 0
+
+    def fake_connect(addr: object, timeout: float = 0) -> mock.MagicMock:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return cdp_probe(b"not a browser")
+        return cdp_probe()
+
+    with (
+        mock.patch.object(
+            runtime.socket, "create_connection", side_effect=fake_connect
+        ),
+        mock.patch.object(runtime.DesktopProcess, "_owned_pids", return_value=[]),
+        mock.patch.object(
+            runtime.subprocess, "Popen", return_value=launched
+        ) as popen,
+    ):
+        desktop.start()
+
+    popen.assert_called_once()
+
+
+def test_given_reused_pid_when_signaling_then_unrelated_process_is_skipped() -> None:
+    runtime = load_runtime()
+    desktop = runtime.DesktopProcess(1000)
+    desktop._known_pids = [(4321, 111)]
+
+    with mock.patch.object(
+        runtime.DesktopProcess, "_proc_start_time", return_value=222
+    ):
+        assert desktop._owned_pids() == []
 
 
 def test_given_failed_startup_when_reacquiring_then_cooldown_fails_fast() -> None:

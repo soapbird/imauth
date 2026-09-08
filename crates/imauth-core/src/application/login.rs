@@ -200,21 +200,39 @@ impl LoginUseCase {
                         {
                             Ok(result) => result.map_err(LoginFailure::from)?,
                             Err(_) => {
-                                let stored = tokio::time::timeout(
-                                    CLEANUP_TIMEOUT,
-                                    self.sessions.get(&session.id),
-                                )
-                                .await;
-                                match stored {
-                                    Ok(Ok(Some(stored)))
-                                        if stored.state == SessionState::Connected => {}
-                                    _ => {
-                                        return Err(LoginFailure::Operation(
-                                            crate::ImauthError::Database(
-                                                "login persistence timed out".into(),
-                                            ),
-                                        ));
+                                // The timed-out commit may still land
+                                // afterwards; re-check briefly before
+                                // declaring failure, or the Failed update can
+                                // race a commit that succeeded.
+                                let mut persisted = false;
+                                for _ in 0..5 {
+                                    match tokio::time::timeout(
+                                        CLEANUP_TIMEOUT,
+                                        self.sessions.get(&session.id),
+                                    )
+                                    .await
+                                    {
+                                        Ok(Ok(Some(stored)))
+                                            if stored.state == SessionState::Connected =>
+                                        {
+                                            persisted = true;
+                                            break;
+                                        }
+                                        Ok(Ok(Some(_))) => {
+                                            tokio::time::sleep(std::time::Duration::from_millis(
+                                                200,
+                                            ))
+                                            .await;
+                                        }
+                                        _ => break,
                                     }
+                                }
+                                if !persisted {
+                                    return Err(LoginFailure::Operation(
+                                        crate::ImauthError::Database(
+                                            "login persistence timed out".into(),
+                                        ),
+                                    ));
                                 }
                             }
                         }

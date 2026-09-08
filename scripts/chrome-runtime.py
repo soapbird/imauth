@@ -211,15 +211,16 @@ class DesktopProcess:
         self._user_uid = user_uid
         self._startup_timeout = startup_timeout
         self._process: subprocess.Popen[bytes] | None = None
-        self._known_pids: list[int] = []
+        self._known_pids: list[tuple[int, int]] = []
 
     def start(self) -> None:
         if self._cdp_ready():
-            # A desktop already serves CDP — ours, or a survivor whose
-            # supervisor (runuser) died. Adopt it: deleting the live
-            # profile's Singleton locks and launching a second desktop
-            # corrupts the profile, and the readiness probe cannot tell
-            # the two instances apart.
+            if self._process is None or self._process.poll() is not None:
+                # Adopting a desktop whose supervisor is gone: rebuild
+                # ownership or a later stop() finds nothing to signal. The
+                # container runs only the desktop as kasm-user, so a UID
+                # scan is exact here.
+                self._adopt_owned_pids()
             return
         if self._owned_pids():
             self.stop()
@@ -236,18 +237,21 @@ class DesktopProcess:
                 self.stop()
                 raise OSError("desktop startup exited before CDP became ready")
             if self._cdp_ready():
-                self._known_pids = self._owned_pids()
+                self._known_pids = self._recorded_owned_pids()
                 return
             time.sleep(PROCESS_POLL_SECS)
         self.stop()
         raise OSError("desktop CDP did not become ready before timeout")
 
     def _cdp_ready(self) -> bool:
+        # Require a real CDP identity, not just an open TCP port — anything
+        # adopted as the browser receives authentication and cookie traffic.
         try:
             with socket.create_connection(
                 ("127.0.0.1", 9222), timeout=UPSTREAM_PROBE_TIMEOUT_SECS
-            ):
-                return True
+            ) as probe:
+                probe.sendall(b"GET /json/version HTTP/1.0\r\n\r\n")
+                return b'"Browser"' in probe.recv(4096)
         except OSError:
             return False
 
@@ -275,12 +279,50 @@ class DesktopProcess:
             except ProcessLookupError:
                 continue
 
+    def _proc_start_time(self, pid: int) -> int | None:
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text()
+            return int(stat[stat.rindex(")") + 2 :].split()[19])
+        except (OSError, ValueError, IndexError):
+            return None
+
+    def _adopt_owned_pids(self) -> None:
+        adopted: list[tuple[int, int]] = []
+        for status_path in Path("/proc").glob("[0-9]*/status"):
+            try:
+                if status_path.parent.stat().st_uid != self._user_uid:
+                    continue
+                status_lines = status_path.read_text().splitlines()
+                state_line = next(
+                    line for line in status_lines if line.startswith("State:")
+                )
+            except (OSError, StopIteration):
+                continue
+            if "Z" in state_line.split()[1]:
+                continue
+            pid = int(status_path.parent.name)
+            start_time = self._proc_start_time(pid)
+            if start_time is not None:
+                adopted.append((pid, start_time))
+        self._known_pids = adopted
+
+    def _recorded_owned_pids(self) -> list[tuple[int, int]]:
+        recorded: list[tuple[int, int]] = []
+        for pid in self._owned_pids():
+            start_time = self._proc_start_time(pid)
+            if start_time is not None:
+                recorded.append((pid, start_time))
+        return recorded
+
     def _owned_pids(self) -> list[int]:
-        # Signal only the desktop's process tree (the supervisor, its
-        # descendants, and pids recorded at startup, which keeps orphaned
-        # children reachable after a supervisor death). A UID-wide scan
-        # would kill unrelated kasm-user processes sharing the container.
-        roots: set[int] = set(self._known_pids)
+        # Signal only the desktop's process tree. Recorded roots are matched
+        # on their /proc start time so a PID reused by an unrelated process
+        # is never signalled; reparented children stay reachable through the
+        # recorded set after a supervisor death.
+        roots: set[int] = set()
+        for pid, start_time in self._known_pids:
+            if self._proc_start_time(pid) == start_time:
+                roots.add(pid)
         if self._process is not None and self._process.poll() is None:
             roots.add(self._process.pid)
         if not roots:
