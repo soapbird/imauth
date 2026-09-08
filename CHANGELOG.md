@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-08
+
+### Added
+- Chrome now starts on demand. The sidecar boots only a small CDP supervisor; the first login starts Chromium, KasmVNC, and the desktop, and the desktop stops after the last connection idles out (`IMAUTH_BROWSER_IDLE_TIMEOUT_SECS`, default 60s). Idle memory drops from a full desktop to near zero. New tunables: `IMAUTH_BROWSER_ACQUIRE_TIMEOUT_SECS`, `IMAUTH_CDP_CONNECT_TIMEOUT_SECS`, `IMAUTH_PAGE_TIMEOUT_SECS`, `IMAUTH_LOGIN_TIMEOUT_SECS`, `IMAUTH_MAX_PENDING_LOGINS`.
+- Login lifecycle is bounded end to end: slot waits, page operations, user input, and cleanup each have deadlines, and excess concurrent logins are rejected with gRPC `RESOURCE_EXHAUSTED` instead of queueing forever.
+- Login cookies and the terminal session state now commit in one SQLite transaction. A storage error or a deleted session rolls back the whole login; only a successful commit reports `Connected`.
+- A dropped CDP connection reattaches to the held slot and the same tab, preserving in-progress form input and the viewer URL.
+
+### Fixed
+- A failed browser reconnect no longer strands the previous login tab inside the shared browser. Cleanup opens a throwaway connection solely to close the owned target, and the close finishes even when the caller's timeout has already fired.
+- The Chrome runtime adopts a surviving browser instead of deleting the profile's `Singleton*` locks and starting a second desktop when the supervisor died but Chromium lived (the OOM-kill scenario).
+- Login cookie persistence no longer races the user-login deadline; the commit gets its own bounded window with post-timeout reconciliation, so cookies can no longer land under a session marked failed.
+- Browser shutdown signals only the desktop's process tree instead of every process owned by `kasm-user`.
+- Relay requests share one browser startup and fail fast during outages instead of each queued request restarting the desktop serially.
+- Connecting to a browser slot no longer waits on unrelated tabs that closed before becoming ready.
+- CLI help no longer prints API key environment variable values.
+- CI: the chrome runtime supervisor tests now run on every push and PR; the release workflow installs pytest/anyio for the Python SDK check, keeps the basedpyright baseline, and allows `result_large_err` in generated proto stubs.
+
+### Changed
+- CLI channel commands moved into exclusive command branches; invalid-platform errors are centralized in the server.
+- TypeScript SDK gRPC serialization adapters simplified; Python SDK optional-RPC error handling deduplicated (sync and async clients).
+- Documented the Chrome memory diagnosis and the on-demand startup design in `docs/`.
+- Agent guidance and ponytail skills are now managed via imrule.
+
+### Removed
+- Unused direct Rust dependencies.
+- Docker Hub publish step from the release workflow (images publish to `docker.lowapple.io`).
+
 ## [0.7.1] - 2026-08-27
 
 ### Fixed
