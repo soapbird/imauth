@@ -67,6 +67,8 @@
 - 한국어 리소스를 포함한 Chrome 후보와 현재 빌드 서버에서 사용자가 노벨피아에 직접 로그인했다. SDK가 `Connected`를 받았고, 후속 GetStatus·GetCookies·GetConnectionStatus가 일치했다. 저장된 쿠키 29개는 모두 암호화되어 있었다.
 - 같은 DB와 키로 서버를 재시작한 뒤 연결 상태와 쿠키를 다시 읽었다. 저장 쿠키로 노벨피아에 GET 요청했을 때 회원으로 인식됐으며, 같은 주소의 무쿠키 요청은 비회원으로 인식됐다. 응답은 모두 HTTP 200이었다. 쿠키 값과 회원 식별자는 기록하지 않았다.
 - 초기 두 시도는 브라우저 프로세스 교체와 CDP reset으로 실패했다. 격리 컨테이너에서 `oom_kill=2`, 메모리 peak 약 6.93 GiB를 관측했다. 이후 Chrome 뷰어로 진행한 시도는 로그인까지 유지됐고 OOM 횟수가 증가하지 않았다. 최초 실패의 정확한 유발 원인과 장시간 안정성은 확인되지 않았다.
+- pre-landing 검토 후, 실패한 재연결에서도 소유 tab을 정리하고 여러 외부 tab의 준비 대기에 하나의 공통 상한을 적용했다. timeout 직후 저장 성공을 재확인하는 짧은 reconcile도 추가해 Connected commit과 Failed 갱신의 경합을 막았다.
+- supervisor가 살아남은 브라우저를 인계할 때 `/json/version`의 실제 CDP 응답을 확인하고, PID와 `/proc` 시작 시간을 함께 기록한다. supervisor가 사라진 경우에는 브라우저 프로세스 소유권을 다시 구성하므로 무관한 listener를 채택하거나 재사용된 PID에 signal을 보내지 않는다.
 - 상세 증거: `.omo/evidence/novelpia-real-login-2026-09-08/`의 `result.json`, `reuse-result.json`, `memory-observation.log`.
 
 CAPTCHA·2FA 완료 여부, 장시간 부하, 운영 배포 후 개선율은 검증하지 않았다. provider별 URL·도메인·쿠키 판정 규칙은 변경하지 않았다.

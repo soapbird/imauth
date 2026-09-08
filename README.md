@@ -69,7 +69,7 @@ Application environment variables use the `IMAUTH_` prefix. The Chrome image als
 | `IMAUTH_BROWSER_ACQUIRE_TIMEOUT_SECS` | `30` | Maximum wait for an occupied browser slot |
 | `IMAUTH_CDP_CONNECT_TIMEOUT_SECS` | `30` | Connection budget per Chrome instance, including cold startup |
 | `IMAUTH_PAGE_TIMEOUT_SECS` | `30` | Login page navigation timeout |
-| `IMAUTH_LOGIN_TIMEOUT_SECS` | `300` | User login budget starting at `WaitingForUser`, including cookie persistence |
+| `IMAUTH_LOGIN_TIMEOUT_SECS` | `300` | User login budget starting at `WaitingForUser`; persistence has a separate five-second budget |
 | `IMAUTH_MAX_PENDING_LOGINS` | `8` | Extra admitted logins beyond the number of configured CDP endpoints |
 
 ### Browser lifecycle and login limits
@@ -113,7 +113,8 @@ Update `.env` accordingly before starting each stack.
 
 ## Container Images
 
-Release images are published to `docker.lowapple.io` on every `v*` tag:
+When published, container images use the version from `VERSION` without a leading
+`v`:
 
 | Image                       | Contents                               |
 | --------------------------- | -------------------------------------- |
@@ -123,9 +124,9 @@ Release images are published to `docker.lowapple.io` on every `v*` tag:
 
 ```bash
 # Pull a specific release (or :latest)
-docker pull docker.lowapple.io/imauth:v0.7.1
-docker pull docker.lowapple.io/imauth-chrome:v0.7.1
-docker pull docker.lowapple.io/imauth-chrome-proxy:v0.7.1
+docker pull docker.lowapple.io/imauth:0.8.0
+docker pull docker.lowapple.io/imauth-chrome:0.8.0
+docker pull docker.lowapple.io/imauth-chrome-proxy:0.8.0
 ```
 
 Local image builds use the Makefile:
@@ -148,7 +149,7 @@ Release, so install it directly without cloning or running `protoc`:
 
 ```bash
 # Replace the tag/version with the one from the Releases page
-pip install https://github.com/imyounjs/imauth/releases/download/v0.7.0/imauth-0.7.0-py3-none-any.whl
+pip install https://github.com/imyounjs/imauth/releases/download/v0.8.0/imauth-0.8.0-py3-none-any.whl
 ```
 
 ```python
@@ -171,7 +172,7 @@ shell without installing anything permanently:
 
 ```bash
 # Point uvx at the release wheel; everything after `imauth` is the CLI
-WHL=https://github.com/imyounjs/imauth/releases/download/v0.7.0/imauth-0.7.0-py3-none-any.whl
+WHL=https://github.com/imyounjs/imauth/releases/download/v0.8.0/imauth-0.8.0-py3-none-any.whl
 
 export IMAUTH_URL=localhost:6100
 export IMAUTH_API_KEY=<key>
@@ -231,7 +232,10 @@ in the browser.
 
 ## Development
 
-See [`AGENTS.md`](AGENTS.md) for build commands, testing guidelines, and project conventions.
+Provider onboarding evidence requirements are maintained in
+[`.imrule/AGENTS.md`](.imrule/AGENTS.md).
 
 Run `make install-hooks` once after cloning. The pre-commit hook runs `make quality`,
 which checks Rust, Python SDK, and TypeScript SDK linting and formatting.
+`make test` runs the Rust workspace and the Chrome runtime supervisor tests; install
+pytest first, or run only the supervisor suite with `make test-chrome-runtime`.
