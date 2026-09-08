@@ -11,7 +11,7 @@ pub struct ServerConfig {
     pub tls_key_path: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserConfig {
     #[serde(default = "default_cdp_url")]
     pub cdp_url: String,
@@ -28,6 +28,12 @@ pub struct BrowserConfig {
     pub viewer_urls: Option<String>,
     #[serde(default = "default_login_timeout_secs")]
     pub login_timeout_secs: u64,
+    #[serde(default = "default_page_timeout_secs")]
+    pub acquire_timeout_secs: u64,
+    #[serde(default = "default_page_timeout_secs")]
+    pub connect_timeout_secs: u64,
+    #[serde(default = "default_max_pending_logins")]
+    pub max_pending_logins: usize,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -73,6 +79,10 @@ fn default_login_timeout_secs() -> u64 {
     300
 }
 
+fn default_max_pending_logins() -> usize {
+    8
+}
+
 fn default_data_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
@@ -91,6 +101,22 @@ fn expand_tilde(path: PathBuf) -> PathBuf {
     }
 }
 
+impl Default for BrowserConfig {
+    fn default() -> Self {
+        Self {
+            cdp_url: default_cdp_url(),
+            cdp_urls: None,
+            max_pool_size: default_max_pool_size(),
+            page_timeout_secs: default_page_timeout_secs(),
+            viewer_urls: None,
+            login_timeout_secs: default_login_timeout_secs(),
+            acquire_timeout_secs: default_page_timeout_secs(),
+            connect_timeout_secs: default_page_timeout_secs(),
+            max_pending_logins: default_max_pending_logins(),
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -99,14 +125,7 @@ impl Default for Config {
                 tls_cert_path: None,
                 tls_key_path: None,
             },
-            browser: BrowserConfig {
-                cdp_url: default_cdp_url(),
-                cdp_urls: None,
-                max_pool_size: default_max_pool_size(),
-                page_timeout_secs: default_page_timeout_secs(),
-                viewer_urls: None,
-                login_timeout_secs: default_login_timeout_secs(),
-            },
+            browser: BrowserConfig::default(),
             storage: StorageConfig {
                 data_dir: default_data_dir(),
             },
@@ -161,6 +180,31 @@ impl Config {
         if let Ok(secs) = std::env::var("IMAUTH_LOGIN_TIMEOUT_SECS") {
             if let Ok(s) = secs.parse() {
                 self.browser.login_timeout_secs = s;
+            }
+        }
+        for (name, setting) in [
+            (
+                "IMAUTH_BROWSER_ACQUIRE_TIMEOUT_SECS",
+                &mut self.browser.acquire_timeout_secs,
+            ),
+            (
+                "IMAUTH_CDP_CONNECT_TIMEOUT_SECS",
+                &mut self.browser.connect_timeout_secs,
+            ),
+            (
+                "IMAUTH_PAGE_TIMEOUT_SECS",
+                &mut self.browser.page_timeout_secs,
+            ),
+        ] {
+            if let Ok(value) = std::env::var(name) {
+                if let Ok(seconds) = value.parse() {
+                    *setting = seconds;
+                }
+            }
+        }
+        if let Ok(value) = std::env::var("IMAUTH_MAX_PENDING_LOGINS") {
+            if let Ok(count) = value.parse() {
+                self.browser.max_pending_logins = count;
             }
         }
         if self.security.encryption_key.as_deref() == Some("") {
@@ -280,9 +324,33 @@ mod tests {
             "IMAUTH_ENCRYPTION_KEY",
             "IMAUTH_DATA_DIR",
             "IMAUTH_BROWSER_VIEWER_URLS",
+            "IMAUTH_LOGIN_TIMEOUT_SECS",
+            "IMAUTH_BROWSER_ACQUIRE_TIMEOUT_SECS",
+            "IMAUTH_CDP_CONNECT_TIMEOUT_SECS",
+            "IMAUTH_PAGE_TIMEOUT_SECS",
+            "IMAUTH_MAX_PENDING_LOGINS",
         ] {
             std::env::remove_var(k);
         }
+    }
+
+    #[test]
+    fn omitted_browser_section_keeps_nonzero_machine_budgets() {
+        let cfg: Config = toml::from_str("").unwrap();
+        assert_eq!(cfg.browser.acquire_timeout_secs, 30);
+        assert_eq!(cfg.browser.connect_timeout_secs, 30);
+        assert_eq!(cfg.browser.page_timeout_secs, 30);
+        assert_eq!(cfg.browser.login_timeout_secs, 300);
+        assert_eq!(cfg.browser.max_pending_logins, 8);
+    }
+
+    #[test]
+    fn browser_timeouts_and_pending_limit_accept_toml_overrides() {
+        let cfg: Config = toml::from_str("[browser]\nacquire_timeout_secs=4\nconnect_timeout_secs=9\npage_timeout_secs=6\nmax_pending_logins=0").unwrap();
+        assert_eq!(cfg.browser.acquire_timeout_secs, 4);
+        assert_eq!(cfg.browser.connect_timeout_secs, 9);
+        assert_eq!(cfg.browser.page_timeout_secs, 6);
+        assert_eq!(cfg.browser.max_pending_logins, 0);
     }
 
     #[test]

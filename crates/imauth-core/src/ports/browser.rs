@@ -14,7 +14,10 @@ pub trait BrowserSessionFactory: Send + Sync {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait BrowserSession: Send + Sync {
-    async fn new_page(&self) -> Result<Box<dyn PageDriver>>;
+    async fn new_page(&mut self) -> Result<Box<dyn PageDriver>>;
+    async fn reconnect(&mut self) -> Result<Box<dyn PageDriver>>;
+    async fn wait_disconnected(&self);
+    async fn close(&mut self) -> Result<()>;
     async fn existing_pages(&self) -> Result<Vec<Box<dyn PageDriver>>>;
     fn viewer_url(&self) -> String;
 }

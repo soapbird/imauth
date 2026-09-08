@@ -94,10 +94,23 @@ struct DeterministicBrowserSession {
 
 #[async_trait::async_trait]
 impl BrowserSession for DeterministicBrowserSession {
-    async fn new_page(&self) -> imauth_core::Result<Box<dyn PageDriver>> {
+    async fn new_page(&mut self) -> imauth_core::Result<Box<dyn PageDriver>> {
         Ok(Box::new(DeterministicPageDriver {
             observations: self.observations.clone(),
         }))
+    }
+
+    async fn reconnect(&mut self) -> imauth_core::Result<Box<dyn PageDriver>> {
+        Err(ImauthError::Browser("unexpected reconnect".into()))
+    }
+
+    async fn wait_disconnected(&self) {
+        std::future::pending().await
+    }
+
+    async fn close(&mut self) -> imauth_core::Result<()> {
+        self.observations.closed.fetch_add(1, Ordering::SeqCst);
+        Ok(())
     }
 
     async fn existing_pages(&self) -> imauth_core::Result<Vec<Box<dyn PageDriver>>> {

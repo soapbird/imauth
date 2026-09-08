@@ -17,7 +17,7 @@ use imauth_proto::generated::v1::{
 };
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status};
 
@@ -101,11 +101,21 @@ fn auth_event_from(session: &Session) -> AuthEvent {
 
 pub struct AuthGrpcService {
     container: Arc<AppContainer>,
+    login_capacity: Arc<Semaphore>,
 }
 
 impl AuthGrpcService {
     pub fn new(container: Arc<AppContainer>) -> Self {
-        Self { container }
+        let capacity = container
+            .config
+            .cdp_urls()
+            .len()
+            .saturating_add(container.config.browser.max_pending_logins)
+            .min(Semaphore::MAX_PERMITS);
+        Self {
+            container,
+            login_capacity: Arc::new(Semaphore::new(capacity)),
+        }
     }
 }
 
@@ -120,10 +130,20 @@ impl AuthService for AuthGrpcService {
         let req = request.into_inner();
         let platform = platform_from_proto(req.platform)?;
 
+        let permit = self
+            .login_capacity
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| {
+                Status::resource_exhausted(
+                    "Login capacity reached; retry after an active login finishes",
+                )
+            })?;
         let container = self.container.clone();
         let (tx, rx) = mpsc::channel::<LoginEvent>(10);
 
         tokio::spawn(async move {
+            let _permit = permit;
             container.login.execute(platform, tx).await;
         });
 

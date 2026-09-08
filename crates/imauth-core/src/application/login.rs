@@ -1,39 +1,30 @@
-use crate::domain::auth::classify_auth_state;
+mod control;
+#[cfg(test)]
+mod lifecycle_tests;
+#[cfg(test)]
+mod tests;
+
+use self::control::{LoginControl, LoginFailure, CLEANUP_TIMEOUT};
+use crate::domain::auth::{classify_auth_state, AuthCheckpoint};
 use crate::domain::session::{Cookie, Session, SessionState};
 use crate::domain::Platform;
-use crate::ports::browser::{BrowserSessionFactory, PageDriver};
+use crate::ports::browser::{BrowserSession, BrowserSessionFactory};
 use crate::ports::repository::{CookieRepository, SessionRepository};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::time::Instant;
+
+const DEFAULT_PREPARATION_TIMEOUT: Duration = Duration::from_secs(90);
+const DEFAULT_PAGE_TIMEOUT: Duration = Duration::from_secs(30);
+const COOKIE_POLL_INTERVAL: Duration = Duration::from_secs(2);
+const MAX_ERRORS_BEFORE_RECONNECT: u32 = 3;
 
 #[derive(Debug, Clone)]
 pub enum LoginEvent {
     Started(Session),
-    WaitingForUser(Session, String), // (session, viewer_url)
+    WaitingForUser(Session, String),
     Final(Session, Vec<Cookie>),
-}
-
-/// Send a LoginEvent, logging when the receiver is gone instead of silently
-/// dropping the event. Returns `true` when the channel is closed so callers
-/// can short-circuit the rest of the login pipeline.
-async fn send_or_warn(
-    tx: &mpsc::Sender<LoginEvent>,
-    event: LoginEvent,
-    stage: &'static str,
-) -> bool {
-    if let Err(e) = tx.send(event).await {
-        tracing::warn!(stage = stage, "login event dropped: receiver gone ({e})");
-        true
-    } else {
-        false
-    }
-}
-
-async fn close_page(page: &dyn PageDriver, session_id: &str) {
-    if let Err(error) = page.close().await {
-        tracing::warn!(%session_id, %error, "failed to close login page");
-    }
 }
 
 pub struct LoginUseCase {
@@ -41,6 +32,8 @@ pub struct LoginUseCase {
     cookies: Arc<dyn CookieRepository>,
     browser: Arc<dyn BrowserSessionFactory>,
     login_timeout: Duration,
+    preparation_timeout: Duration,
+    page_timeout: Duration,
 }
 
 impl LoginUseCase {
@@ -55,449 +48,182 @@ impl LoginUseCase {
             cookies,
             browser,
             login_timeout,
+            preparation_timeout: DEFAULT_PREPARATION_TIMEOUT,
+            page_timeout: DEFAULT_PAGE_TIMEOUT,
         }
     }
 
-    pub async fn execute(&self, platform: Platform, tx: mpsc::Sender<LoginEvent>) {
-        let id = uuid::Uuid::new_v4().to_string();
-        let initial = Session::new(id, platform.as_str().to_string());
+    pub fn with_browser_timeouts(mut self, preparation: Duration, page: Duration) -> Self {
+        self.preparation_timeout = preparation;
+        self.page_timeout = page;
+        self
+    }
 
-        let mut session = match self.sessions.create(initial).await {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!("failed to create session: {e}");
-                let mut failed = Session::new(String::new(), platform.as_str().to_string());
+    pub async fn execute(&self, platform: Platform, tx: mpsc::Sender<LoginEvent>) {
+        let preparation_deadline = Instant::now() + self.preparation_timeout;
+        let initial = Session::new(uuid::Uuid::new_v4().to_string(), platform.as_str().into());
+        let created = tokio::select! {
+            biased;
+            _ = tx.closed() => return,
+            result = tokio::time::timeout(CLEANUP_TIMEOUT, self.sessions.create(initial.clone())) => result,
+        };
+        let mut session = match created {
+            Ok(Ok(session)) => session,
+            error => {
+                tracing::error!(?error, "failed to create login session");
+                let mut failed = initial;
                 failed.transition(
                     SessionState::Failed,
                     Some("Failed to create session".into()),
                 );
-                send_or_warn(
-                    &tx,
-                    LoginEvent::Final(failed, vec![]),
-                    "session-create-fail",
+                let _ = tokio::time::timeout(
+                    CLEANUP_TIMEOUT,
+                    tx.send(LoginEvent::Final(failed, vec![])),
                 )
                 .await;
                 return;
             }
         };
-
-        if send_or_warn(&tx, LoginEvent::Started(session.clone()), "started").await {
-            session.transition(SessionState::Failed, Some("Login cancelled".into()));
-            let _ = self.sessions.update(&session).await;
-            return;
-        }
-
-        if tx.is_closed() {
-            tracing::info!(session_id = %session.id, "login cancelled after session create");
-            session.transition(SessionState::Failed, Some("Login cancelled".into()));
-            let _ = self.sessions.update(&session).await;
-            return;
-        }
-
-        let mut browser_session = match self.browser.acquire().await {
-            Ok(b) => b,
-            Err(e) => {
-                session.transition(SessionState::Failed, Some(format!("Browser error: {e}")));
-                let _ = self.sessions.update(&session).await;
-                send_or_warn(
-                    &tx,
-                    LoginEvent::Final(session, vec![]),
-                    "browser-acquire-fail",
-                )
+        let session_id = session.id.clone();
+        let control = LoginControl {
+            sessions: self.sessions.as_ref(),
+            session_id: &session_id,
+            tx: &tx,
+            deadline: preparation_deadline,
+            stage: "browser preparation",
+        };
+        let result = async {
+            control
+                .run(send(&tx, LoginEvent::Started(session.clone())))
+                .await?;
+            let mut browser = control.run(self.browser.acquire()).await?;
+            let result = self
+                .login_in_browser(platform, &mut session, browser.as_mut(), &control)
                 .await;
-                return;
+            match tokio::time::timeout(CLEANUP_TIMEOUT, browser.close()).await {
+                Ok(Ok(())) => {}
+                error => tracing::warn!(%session_id, ?error, "failed to close login browser"),
+            }
+            result
+        }
+        .await;
+
+        let cookies = match result {
+            Ok(cookies) => cookies,
+            Err(error) => {
+                session.transition(SessionState::Failed, Some(error.to_string()));
+                if let Err(error) = tokio::time::timeout(CLEANUP_TIMEOUT, async {
+                    self.sessions.update(&session).await
+                })
+                .await
+                .unwrap_or_else(|_| {
+                    Err(crate::ImauthError::Database(
+                        "Session update timed out".into(),
+                    ))
+                }) {
+                    tracing::warn!(%session_id, %error, "failed to persist terminal login state");
+                }
+                vec![]
             }
         };
+        let _ = tokio::time::timeout(
+            CLEANUP_TIMEOUT,
+            tx.send(LoginEvent::Final(session, cookies)),
+        )
+        .await;
+    }
 
-        if tx.is_closed() {
-            tracing::info!(session_id = %session.id, "login cancelled after browser acquire");
-            session.transition(SessionState::Failed, Some("Login cancelled".into()));
-            let _ = self.sessions.update(&session).await;
-            return;
-        }
-
-        let mut page = match browser_session.new_page().await {
-            Ok(p) => p,
-            Err(e) => {
-                session.transition(
-                    SessionState::Failed,
-                    Some(format!("Failed to open page: {e}")),
-                );
-                let _ = self.sessions.update(&session).await;
-                send_or_warn(&tx, LoginEvent::Final(session, vec![]), "page-open-fail").await;
-                return;
-            }
+    async fn login_in_browser(
+        &self,
+        platform: Platform,
+        session: &mut Session,
+        browser: &mut dyn BrowserSession,
+        preparation: &LoginControl<'_>,
+    ) -> Result<Vec<Cookie>, LoginFailure> {
+        let page_control = LoginControl {
+            deadline: preparation.deadline.min(Instant::now() + self.page_timeout),
+            stage: "page creation",
+            ..*preparation
         };
-
-        if tx.is_closed() {
-            tracing::info!(session_id = %session.id, "login cancelled after page open");
-            session.transition(SessionState::Failed, Some("Login cancelled".into()));
-            let _ = self.sessions.update(&session).await;
-            close_page(page.as_ref(), &session.id).await;
-            return;
-        }
-
+        let mut page = page_control.run(browser.new_page()).await?;
         session.transition(
             SessionState::Loading,
             Some(format!("Opening {} login page...", platform.as_str())),
         );
-        let _ = self.sessions.update(&session).await;
-
-        if let Err(e) = page.navigate(platform.login_url(), 30).await {
-            session.transition(SessionState::Failed, Some(format!("Navigation error: {e}")));
-            let _ = self.sessions.update(&session).await;
-            close_page(page.as_ref(), &session.id).await;
-            send_or_warn(&tx, LoginEvent::Final(session, vec![]), "navigate-fail").await;
-            return;
-        }
-
-        let viewer_url = browser_session.viewer_url();
-
+        preparation.run(self.sessions.update(session)).await?;
+        preparation
+            .run(page.navigate(platform.login_url(), self.page_timeout.as_secs()))
+            .await?;
         session.transition(
             SessionState::WaitingForUser,
             Some("Waiting for user to log in via browser".into()),
         );
-        let _ = self.sessions.update(&session).await;
+        preparation.run(self.sessions.update(session)).await?;
+        preparation
+            .run(send(
+                preparation.tx,
+                LoginEvent::WaitingForUser(session.clone(), browser.viewer_url()),
+            ))
+            .await?;
 
-        if send_or_warn(
-            &tx,
-            LoginEvent::WaitingForUser(session.clone(), viewer_url.clone()),
-            "waiting-for-user",
-        )
-        .await
-        {
-            session.transition(SessionState::Failed, Some("Login cancelled".into()));
-            let _ = self.sessions.update(&session).await;
-            close_page(page.as_ref(), &session.id).await;
-            return;
-        }
-
-        // Poll cookies until session cookie appears or timeout.
-        //
-        // The CDP WebSocket to Chrome can reset mid-login (observed as
-        // `ResetWithoutClosingHandshake`). When it does, the held connection is
-        // dead and every cookie read fails until timeout, stranding an
-        // otherwise-successful user login. Reconnect after repeated failures:
-        // cookies persist in the Chrome profile, so a fresh connection — and a
-        // fresh page on the login URL, which redirects to the feed once the user
-        // is signed in — still sees the session cookie. The user's own login tab
-        // is left open (we never close it on reconnect).
-        let deadline = tokio::time::Instant::now() + self.login_timeout;
-        let mut cookies = Vec::new();
-        let mut consecutive_errors = 0u32;
-        const MAX_ERRORS_BEFORE_RECONNECT: u32 = 3;
-
+        let control = LoginControl {
+            deadline: Instant::now() + self.login_timeout,
+            stage: "user login",
+            ..*preparation
+        };
+        let mut errors = 0;
         loop {
-            let cancelled = if tx.is_closed() {
-                true
-            } else {
-                match self.sessions.get(&session.id).await {
-                    Ok(Some(_)) => false,
-                    Ok(None) => true,
-                    Err(error) => {
-                        tracing::warn!(session_id = %session.id, %error, "failed to check login cancellation");
-                        false
+            if control.run(self.sessions.get(&session.id)).await?.is_none() {
+                return Err(LoginFailure::Cancelled);
+            }
+            let result = control.run(async {
+                tokio::select! {
+                    biased;
+                    cookies = page.get_cookies() => cookies,
+                    _ = browser.wait_disconnected() => Err(crate::ImauthError::Browser("CDP disconnected".into())),
+                }
+            }).await;
+            match result {
+                Ok(raw) => {
+                    errors = 0;
+                    if let AuthCheckpoint::Connected(cookies) = classify_auth_state(raw, platform) {
+                        session
+                            .transition(SessionState::Connected, Some("Login successful".into()));
+                        control
+                            .run(self.cookies.save_login(session, &cookies))
+                            .await?;
+                        return Ok(cookies);
                     }
                 }
-            };
-            if cancelled {
-                tracing::info!(session_id = %session.id, "login cancelled during cookie polling");
-                session.transition(SessionState::Failed, Some("Login cancelled".into()));
-                close_page(page.as_ref(), &session.id).await;
-                send_or_warn(&tx, LoginEvent::Final(session, vec![]), "cancelled").await;
-                return;
-            }
-
-            if tokio::time::Instant::now() >= deadline {
-                session.transition(
-                    SessionState::Failed,
-                    Some("Login timed out — no session cookie detected".into()),
-                );
-                break;
-            }
-
-            tokio::time::sleep(Duration::from_secs(2)).await;
-
-            match page.get_cookies().await {
-                Ok(raw_cookies) => {
-                    consecutive_errors = 0;
-                    match classify_auth_state(raw_cookies, platform) {
-                        crate::domain::auth::AuthCheckpoint::Connected(filtered) => {
-                            session.transition(
-                                SessionState::Connected,
-                                Some("Login successful".into()),
-                            );
-                            cookies = filtered;
-                            break;
-                        }
-                        crate::domain::auth::AuthCheckpoint::Pending => {}
+                Err(LoginFailure::Operation(error)) => {
+                    errors += 1;
+                    tracing::warn!(session_id = %session.id, %error, errors, "cookie poll failed");
+                    if errors >= MAX_ERRORS_BEFORE_RECONNECT {
+                        page = control.run(browser.reconnect()).await?;
+                        errors = 0;
+                        continue;
                     }
                 }
-                Err(e) => {
-                    consecutive_errors += 1;
-                    tracing::warn!(
-                        session_id = %session.id,
-                        "cookie poll error (#{consecutive_errors}): {e}"
-                    );
-
-                    if consecutive_errors >= MAX_ERRORS_BEFORE_RECONNECT {
-                        tracing::warn!(
-                            session_id = %session.id,
-                            "CDP connection appears dead; reconnecting to Chrome"
-                        );
-
-                        // Drop the dead connection (and its pool permit) before
-                        // re-acquiring, or the single-permit pool would dead-lock
-                        // waiting on itself. Do NOT close the page — the CDP link
-                        // is already gone and the user's login tab must survive.
-                        drop(page);
-                        drop(browser_session);
-
-                        browser_session = match self.browser.acquire().await {
-                            Ok(b) => b,
-                            Err(e) => {
-                                session.transition(
-                                    SessionState::Failed,
-                                    Some(format!("CDP reconnect failed: {e}")),
-                                );
-                                let _ = self.sessions.update(&session).await;
-                                send_or_warn(
-                                    &tx,
-                                    LoginEvent::Final(session, vec![]),
-                                    "reconnect-acquire-fail",
-                                )
-                                .await;
-                                return;
-                            }
-                        };
-
-                        page = match browser_session.new_page().await {
-                            Ok(p) => p,
-                            Err(e) => {
-                                session.transition(
-                                    SessionState::Failed,
-                                    Some(format!("CDP reconnect failed to open page: {e}")),
-                                );
-                                let _ = self.sessions.update(&session).await;
-                                send_or_warn(
-                                    &tx,
-                                    LoginEvent::Final(session, vec![]),
-                                    "reconnect-page-fail",
-                                )
-                                .await;
-                                return;
-                            }
-                        };
-
-                        if let Err(e) = page.navigate(platform.login_url(), 30).await {
-                            tracing::warn!(
-                                session_id = %session.id,
-                                "reconnect navigation failed (will retry cookies anyway): {e}"
-                            );
-                        }
-                        consecutive_errors = 0;
+                Err(error) => return Err(error),
+            }
+            let disconnected = control
+                .run(async {
+                    tokio::select! {
+                        _ = browser.wait_disconnected() => Ok(true),
+                        _ = tokio::time::sleep(COOKIE_POLL_INTERVAL) => Ok(false),
                     }
-                }
+                })
+                .await?;
+            if disconnected {
+                page = control.run(browser.reconnect()).await?;
+                errors = 0;
             }
         }
-
-        let _ = self.sessions.update(&session).await;
-
-        if session.state == SessionState::Connected {
-            if let Err(e) = self.cookies.save(&session.platform, &cookies).await {
-                tracing::warn!("Failed to persist cookies after login: {e}");
-            }
-        }
-
-        if matches!(session.state, SessionState::WaitingForUser) {
-            // If still waiting but we broke out (shouldn't happen), mark failed
-            session.transition(SessionState::Failed, Some("Login did not complete".into()));
-        }
-
-        // For WaitingForUser that transitioned to Connected/Failed, close page and drop browser.
-        // The active session registry is no longer needed for 2FA since login is user-driven.
-        close_page(page.as_ref(), &session.id).await;
-        drop(page);
-        drop(browser_session);
-
-        send_or_warn(&tx, LoginEvent::Final(session, cookies), "final").await;
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::session::Cookie;
-    use crate::ports::browser::{MockBrowserSession, MockBrowserSessionFactory};
-    use crate::ports::repository::{MockCookieRepository, MockSessionRepository};
-    use crate::Result as AppResult;
-    use async_trait::async_trait;
-
-    /// Test double — returns a session cookie on the first poll.
-    struct ImmediateCookiePageDriver;
-    #[async_trait]
-    impl crate::ports::browser::PageDriver for ImmediateCookiePageDriver {
-        async fn navigate(&self, _url: &str, _timeout_secs: u64) -> AppResult<()> {
-            Ok(())
-        }
-        async fn get_cookies(&self) -> AppResult<Vec<Cookie>> {
-            Ok(vec![Cookie {
-                name: "sessionid".into(),
-                value: "abc".into(),
-                domain: ".instagram.com".into(),
-                path: "/".into(),
-                expires: None,
-                http_only: true,
-                secure: true,
-            }])
-        }
-        async fn screenshot(&self) -> AppResult<Vec<u8>> {
-            Ok(vec![])
-        }
-        async fn content_html(&self) -> AppResult<String> {
-            Ok(String::new())
-        }
-        async fn close(&self) -> AppResult<()> {
-            Ok(())
-        }
-    }
-
-    fn build_login_use_case(
-        sessions: MockSessionRepository,
-        cookies: MockCookieRepository,
-        browser: MockBrowserSessionFactory,
-    ) -> LoginUseCase {
-        LoginUseCase::new(
-            Arc::new(sessions),
-            Arc::new(cookies),
-            Arc::new(browser),
-            Duration::from_secs(5),
-        )
-    }
-
-    fn happy_browser_with_page(
-        page: Box<dyn crate::ports::browser::PageDriver>,
-    ) -> MockBrowserSessionFactory {
-        let mut factory = MockBrowserSessionFactory::new();
-        factory.expect_acquire().return_once(|| {
-            let mut session = MockBrowserSession::new();
-            session.expect_new_page().return_once(move || Ok(page));
-            session
-                .expect_viewer_url()
-                .returning(|| "http://localhost:6101/index.html".to_string());
-            Ok(Box::new(session))
-        });
-        factory
-            .expect_viewer_url()
-            .returning(|| Some("http://localhost:6101/index.html".to_string()));
-        factory
-    }
-
-    #[tokio::test]
-    async fn login_connected_path_saves_cookies_and_emits_final_event() {
-        let mut sessions = MockSessionRepository::new();
-        sessions.expect_create().returning(Ok);
-        sessions
-            .expect_get()
-            .returning(|_| Ok(Some(Session::new("active".into(), "instagram".into()))));
-        sessions.expect_update().returning(|_| Ok(()));
-
-        let mut cookies = MockCookieRepository::new();
-        cookies
-            .expect_save()
-            .withf(|p, c| p == "instagram" && c.len() == 1)
-            .times(1)
-            .returning(|_, _| Ok(()));
-
-        let page = Box::new(ImmediateCookiePageDriver);
-        let uc = build_login_use_case(sessions, cookies, happy_browser_with_page(page));
-
-        let (tx, mut rx) = mpsc::channel(8);
-        uc.execute(Platform::Instagram, tx).await;
-
-        let started = rx.recv().await.expect("started event");
-        assert!(matches!(started, LoginEvent::Started(_)));
-
-        let waiting = rx.recv().await.expect("waiting event");
-        match &waiting {
-            LoginEvent::WaitingForUser(_, url) => {
-                assert!(url.ends_with("/index.html"));
-            }
-            _ => panic!("expected WaitingForUser, got {:?}", waiting),
-        }
-
-        let final_evt = rx.recv().await.expect("final event");
-        match final_evt {
-            LoginEvent::Final(s, cookies) => {
-                assert_eq!(s.state, SessionState::Connected);
-                assert_eq!(cookies.len(), 1);
-            }
-            _ => panic!("expected Final"),
-        }
-    }
-
-    #[tokio::test]
-    async fn login_browser_acquire_failure_emits_failed_final_event() {
-        let mut sessions = MockSessionRepository::new();
-        sessions.expect_create().returning(Ok);
-        sessions.expect_update().returning(|_| Ok(()));
-
-        let mut cookies = MockCookieRepository::new();
-        cookies.expect_save().times(0);
-
-        let mut browser = MockBrowserSessionFactory::new();
-        browser
-            .expect_acquire()
-            .return_once(|| Err(crate::ImauthError::Browser("no cdp".into())));
-        browser.expect_viewer_url().returning(|| None);
-
-        let uc = build_login_use_case(sessions, cookies, browser);
-
-        let (tx, mut rx) = mpsc::channel(8);
-        uc.execute(Platform::Instagram, tx).await;
-        let _ = rx.recv().await;
-        let final_evt = rx.recv().await.unwrap();
-        match final_evt {
-            LoginEvent::Final(s, cookies) => {
-                assert_eq!(s.state, SessionState::Failed);
-                assert!(s.message.unwrap_or_default().contains("Browser error"));
-                assert!(cookies.is_empty());
-            }
-            _ => panic!("expected Final"),
-        }
-    }
-
-    #[tokio::test]
-    async fn deleted_session_cancels_login_and_closes_page() {
-        let mut sessions = MockSessionRepository::new();
-        sessions.expect_create().returning(Ok);
-        sessions.expect_get().times(1).returning(|_| Ok(None));
-        sessions.expect_update().returning(|_| Ok(()));
-
-        let mut cookies = MockCookieRepository::new();
-        cookies.expect_save().times(0);
-
-        let mut page = crate::ports::browser::MockPageDriver::new();
-        page.expect_navigate().return_once(|_, _| Ok(()));
-        page.expect_get_cookies().times(0);
-        page.expect_close().times(1).return_once(|| Ok(()));
-        let uc = build_login_use_case(sessions, cookies, happy_browser_with_page(Box::new(page)));
-
-        let (tx, mut rx) = mpsc::channel(8);
-        uc.execute(Platform::Instagram, tx).await;
-
-        assert!(matches!(rx.recv().await, Some(LoginEvent::Started(_))));
-        assert!(matches!(
-            rx.recv().await,
-            Some(LoginEvent::WaitingForUser(_, _))
-        ));
-        match rx.recv().await {
-            Some(LoginEvent::Final(session, cookies)) => {
-                assert_eq!(session.state, SessionState::Failed);
-                assert_eq!(session.message.as_deref(), Some("Login cancelled"));
-                assert!(cookies.is_empty());
-            }
-            other => panic!("expected cancelled final event, got {other:?}"),
-        }
-    }
+async fn send(tx: &mpsc::Sender<LoginEvent>, event: LoginEvent) -> crate::Result<()> {
+    tx.send(event)
+        .await
+        .map_err(|_| crate::ImauthError::Browser("Login cancelled".into()))
 }
