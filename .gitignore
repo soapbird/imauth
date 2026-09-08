@@ -56,3 +56,14 @@ sdk/typescript/*.log
 .gstack/
 .gjc/
 .debug-journal.md
+.gbrain-source
+
+
+# START ImRule Generated Files
+/.claude/skills
+/.codex/skills
+/.factory/skills
+/.imrule/manifest.json
+/AGENTS.md
+/CLAUDE.md
+# END ImRule Generated Files

@@ -20,7 +20,7 @@ pub(crate) async fn run(
     let channel = connect_channel(&server, tls_ca.as_deref(), tls_domain.as_deref()).await?;
     match command {
         Commands::Login { platform } => {
-            let mut client = AuthServiceClient::new(channel.clone());
+            let mut client = AuthServiceClient::new(channel);
             let request = with_api_key(
                 tonic::Request::new(LoginRequest {
                     platform: platform_to_proto(&platform)?,
@@ -64,7 +64,7 @@ pub(crate) async fn run(
             println!("{:#?}", response.into_inner());
         }
         Commands::Cancel { session_id } => {
-            let mut client = AuthServiceClient::new(channel.clone());
+            let mut client = AuthServiceClient::new(channel);
             let response = client
                 .cancel(with_api_key(
                     tonic::Request::new(CancelRequest { session_id }),
@@ -75,7 +75,7 @@ pub(crate) async fn run(
             println!("{}", response.message);
         }
         Commands::Validate { platform } => {
-            let mut client = SessionServiceClient::new(channel.clone());
+            let mut client = SessionServiceClient::new(channel);
             let response = client
                 .validate_session(with_api_key(
                     tonic::Request::new(ValidateRequest {
@@ -90,7 +90,7 @@ pub(crate) async fn run(
             println!("Expires at: {}", response.expires_at);
         }
         Commands::Connections => {
-            let mut client = SessionServiceClient::new(channel.clone());
+            let mut client = SessionServiceClient::new(channel);
             let response = client
                 .get_connection_status(with_api_key(tonic::Request::new(Empty {}), &api_key)?)
                 .await?
@@ -102,7 +102,7 @@ pub(crate) async fn run(
             }
         }
         Commands::Cookies { platform, format } => {
-            let mut client = SessionServiceClient::new(channel.clone());
+            let mut client = SessionServiceClient::new(channel);
             if format == "netscape" {
                 let response = client
                     .export_netscape(with_api_key(

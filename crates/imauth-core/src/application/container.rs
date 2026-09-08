@@ -59,18 +59,28 @@ impl AppContainer {
         let cdp_urls = config.cdp_urls();
         let viewer_urls = config.browser_viewer_urls();
         let login_timeout = Duration::from_secs(config.login_timeout_secs());
+        let acquire_timeout = Duration::from_secs(config.browser.acquire_timeout_secs);
+        let connect_timeout = Duration::from_secs(config.browser.connect_timeout_secs);
+        let page_timeout = Duration::from_secs(config.page_timeout_secs());
+        let preparation_timeout = acquire_timeout
+            + connect_timeout.saturating_mul(cdp_urls.len().try_into().unwrap_or(u32::MAX))
+            + page_timeout.saturating_mul(2);
         let browser: Arc<dyn BrowserSessionFactory> = Arc::new(PooledBrowserFactory::new(
             cdp_urls,
             &viewer_urls,
-            login_timeout,
+            acquire_timeout,
+            connect_timeout,
         ));
 
-        let login = Arc::new(LoginUseCase::new(
-            sessions.clone(),
-            cookies.clone(),
-            browser.clone(),
-            login_timeout,
-        ));
+        let login = Arc::new(
+            LoginUseCase::new(
+                sessions.clone(),
+                cookies.clone(),
+                browser.clone(),
+                login_timeout,
+            )
+            .with_browser_timeouts(preparation_timeout, page_timeout),
+        );
         let get_cookies = Arc::new(GetCookiesUseCase::new(cookies.clone()));
         let update_cookies = Arc::new(UpdateCookiesUseCase::new(cookies.clone()));
         let export_netscape = Arc::new(ExportNetscapeUseCase::new(cookies.clone()));

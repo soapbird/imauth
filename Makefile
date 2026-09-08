@@ -23,8 +23,12 @@ all: build
 build:
 	cargo build --release -p imauth-server -p imauth-cli
 
-test:
+test: test-chrome-runtime
 	cargo test --workspace
+
+.PHONY: test-chrome-runtime
+test-chrome-runtime:
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m pytest -q scripts/chrome-runtime-test.py
 
 lint:
 	cargo clippy --workspace -- -D warnings

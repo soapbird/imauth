@@ -16,14 +16,13 @@ rustls = { workspace = true }
 clap = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-uuid = { workspace = true }
 futures = { workspace = true }
 chrono = { workspace = true }
-async-trait = { workspace = true }
 tokio-stream = "0.1"
 subtle = { workspace = true }
 dotenvy = { workspace = true }
 tonic-health = { workspace = true }
 
 [dev-dependencies]
+async-trait = { workspace = true }
 sqlx = { workspace = true }

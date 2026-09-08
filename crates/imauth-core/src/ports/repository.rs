@@ -16,6 +16,7 @@ pub trait SessionRepository: Send + Sync {
 #[async_trait]
 pub trait CookieRepository: Send + Sync {
     async fn save(&self, platform: &str, cookies: &[Cookie]) -> Result<()>;
+    async fn save_login(&self, session: &Session, cookies: &[Cookie]) -> Result<()>;
     async fn get<'a>(
         &'a self,
         platform: &'a str,

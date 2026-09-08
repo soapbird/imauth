@@ -22,6 +22,7 @@ import {
   parseCookieList,
   parseNetscapeExport,
   parseValidationResult,
+  responseDeserializer,
   type AuthStatusResponseWire,
   type ConnectionStatusWire,
   type CookieListWire,
@@ -62,19 +63,6 @@ function methodDefinition(
   return method;
 }
 
-function requestSerializer<Request extends object>(
-  method: protoLoader.MethodDefinition<object, object>,
-): (request: Request) => Buffer {
-  return (request) => method.requestSerialize(request);
-}
-
-function responseDeserializer<Response>(
-  method: protoLoader.MethodDefinition<object, object>,
-  parse: (value: unknown) => Response,
-): (bytes: Buffer) => Response {
-  return (bytes) => parse(method.responseDeserialize(bytes));
-}
-
 const loginMethod = methodDefinition("imauth.v1.AuthService", "Login");
 const getStatusMethod = methodDefinition("imauth.v1.AuthService", "GetStatus");
 const cancelMethod = methodDefinition("imauth.v1.AuthService", "Cancel");
@@ -96,7 +84,7 @@ class AuthClient implements AuthGrpcClient {
   Login(request: LoginRequest, metadata: grpc.Metadata): grpc.ClientReadableStream<AuthEvent> {
     return this.client.makeServerStreamRequest(
       loginMethod.path,
-      requestSerializer<LoginRequest>(loginMethod),
+      loginMethod.requestSerialize,
       responseDeserializer(loginMethod, parseAuthEvent),
       request,
       metadata,
@@ -110,7 +98,7 @@ class AuthClient implements AuthGrpcClient {
   ): void {
     this.client.makeUnaryRequest(
       getStatusMethod.path,
-      requestSerializer<StatusRequest>(getStatusMethod),
+      getStatusMethod.requestSerialize,
       responseDeserializer(getStatusMethod, parseAuthStatusResponse),
       request,
       metadata,
@@ -121,7 +109,7 @@ class AuthClient implements AuthGrpcClient {
   Cancel(request: CancelRequest, metadata: grpc.Metadata, callback: GrpcUnaryCallback<void>): void {
     this.client.makeUnaryRequest(
       cancelMethod.path,
-      requestSerializer<CancelRequest>(cancelMethod),
+      cancelMethod.requestSerialize,
       responseDeserializer(cancelMethod, () => undefined),
       request,
       metadata,
@@ -144,7 +132,7 @@ class SessionClient implements SessionGrpcClient {
   ): void {
     this.client.makeUnaryRequest(
       getCookiesMethod.path,
-      requestSerializer<GetCookiesRequest>(getCookiesMethod),
+      getCookiesMethod.requestSerialize,
       responseDeserializer(getCookiesMethod, parseCookieList),
       request,
       metadata,
@@ -159,7 +147,7 @@ class SessionClient implements SessionGrpcClient {
   ): void {
     this.client.makeUnaryRequest(
       updateCookiesMethod.path,
-      requestSerializer<UpdateCookiesRequest>(updateCookiesMethod),
+      updateCookiesMethod.requestSerialize,
       responseDeserializer(updateCookiesMethod, () => undefined),
       request,
       metadata,
@@ -174,7 +162,7 @@ class SessionClient implements SessionGrpcClient {
   ): void {
     this.client.makeUnaryRequest(
       exportNetscapeMethod.path,
-      requestSerializer<PlatformRequest>(exportNetscapeMethod),
+      exportNetscapeMethod.requestSerialize,
       responseDeserializer(exportNetscapeMethod, parseNetscapeExport),
       request,
       metadata,
@@ -189,7 +177,7 @@ class SessionClient implements SessionGrpcClient {
   ): void {
     this.client.makeUnaryRequest(
       validateSessionMethod.path,
-      requestSerializer<PlatformRequest>(validateSessionMethod),
+      validateSessionMethod.requestSerialize,
       responseDeserializer(validateSessionMethod, parseValidationResult),
       request,
       metadata,
@@ -204,7 +192,7 @@ class SessionClient implements SessionGrpcClient {
   ): void {
     this.client.makeUnaryRequest(
       getConnectionStatusMethod.path,
-      requestSerializer<Readonly<Record<string, never>>>(getConnectionStatusMethod),
+      getConnectionStatusMethod.requestSerialize,
       responseDeserializer(getConnectionStatusMethod, parseConnectionStatus),
       request,
       metadata,

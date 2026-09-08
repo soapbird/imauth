@@ -1236,22 +1236,20 @@ dependencies = [
 
 [[package]]
 name = "imauth-cli"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "clap",
  "dotenvy",
  "imauth-proto",
  "rustls",
- "serde_json",
  "tokio",
  "tonic",
- "tracing",
  "tracing-subscriber",
 ]
 
 [[package]]
 name = "imauth-core"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -1263,12 +1261,10 @@ dependencies = [
  "mockall",
  "rand 0.8.6",
  "serde",
- "serde_json",
  "sqlx",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "tokio-test",
  "toml",
  "tracing",
  "url",
@@ -1277,7 +1273,7 @@ dependencies = [
 
 [[package]]
 name = "imauth-proto"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "prost",
  "tonic",
@@ -1286,7 +1282,7 @@ dependencies = [
 
 [[package]]
 name = "imauth-server"
-version = "0.7.1"
+version = "0.8.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1304,7 +1300,6 @@ dependencies = [
  "tonic-health",
  "tracing",
  "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
@@ -2751,17 +2746,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
-]
-
-[[package]]
-name = "tokio-test"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f6d24790a10a7af737693a3e8f1d03faef7e6ca0cc99aae5066f533766de545"
-dependencies = [
- "futures-core",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]

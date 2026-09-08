@@ -1,3 +1,4 @@
+import type { MethodDefinition } from "@grpc/proto-loader";
 import type {
   AuthEvent,
   AuthStatus,
@@ -7,6 +8,13 @@ import type {
   Platform,
 } from "./types";
 import { AuthStatus as AuthStatusValue, Platform as PlatformValue } from "./types";
+
+export function responseDeserializer<Response>(
+  method: MethodDefinition<object, object>,
+  parse: (value: unknown) => Response,
+): (bytes: Buffer) => Response {
+  return (bytes) => parse(method.responseDeserialize(bytes));
+}
 
 export class GrpcResponseError extends Error {
   constructor(readonly field: string) {

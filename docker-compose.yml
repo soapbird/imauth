@@ -4,11 +4,12 @@ x-chrome: &chrome
   restart: unless-stopped
   environment:
     VNC_RESOLUTION: ${BROWSER_KASM_RESOLUTION:-1366x768}
+    IMAUTH_BROWSER_IDLE_TIMEOUT_SECS: ${IMAUTH_BROWSER_IDLE_TIMEOUT_SECS:-60}
     # KasmVNC needs a non-empty password to start its daemon. Auth is disabled
     # in the chrome image (-SecurityTypes None), so login is always immediate.
     VNC_PW: imauth
   healthcheck: &chrome-healthcheck
-    test: ["CMD-SHELL", "curl -f http://$$(hostname -i | awk '{print $$1}'):9223/json/version"]
+    test: ["CMD-SHELL", "curl -f http://$$(hostname -i | awk '{print $$1}'):9223/healthz"]
     interval: 3s
     timeout: 5s
     retries: 10
@@ -46,6 +47,11 @@ services:
     restart: unless-stopped
     environment:
       - IMAUTH_CDP_URLS=http://chrome-0:9223
+      - IMAUTH_BROWSER_ACQUIRE_TIMEOUT_SECS=${IMAUTH_BROWSER_ACQUIRE_TIMEOUT_SECS:-30}
+      - IMAUTH_CDP_CONNECT_TIMEOUT_SECS=${IMAUTH_CDP_CONNECT_TIMEOUT_SECS:-30}
+      - IMAUTH_PAGE_TIMEOUT_SECS=${IMAUTH_PAGE_TIMEOUT_SECS:-30}
+      - IMAUTH_LOGIN_TIMEOUT_SECS=${IMAUTH_LOGIN_TIMEOUT_SECS:-300}
+      - IMAUTH_MAX_PENDING_LOGINS=${IMAUTH_MAX_PENDING_LOGINS:-8}
       - IMAUTH_GRPC_ADDR=0.0.0.0:50051
       - IMAUTH_DATA_DIR=/data/.imauth/data
       - IMAUTH_ENCRYPTION_KEY=${IMAUTH_ENCRYPTION_KEY:?Set IMAUTH_ENCRYPTION_KEY to a 32-byte base64 key}

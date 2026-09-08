@@ -6,26 +6,13 @@ import type {
   PlatformRequest,
   SaveCredentialsRequest,
 } from "./grpc_contracts";
-import { parseCredentialInfo, parseCredentialSaveResult } from "./grpc_wire";
+import { parseCredentialInfo, parseCredentialSaveResult, responseDeserializer } from "./grpc_wire";
 import type { CredentialInfo, CredentialSaveResult } from "./types";
 
 interface CredentialMethods {
   readonly save: protoLoader.MethodDefinition<object, object>;
   readonly get: protoLoader.MethodDefinition<object, object>;
   readonly delete: protoLoader.MethodDefinition<object, object>;
-}
-
-function requestSerializer<Request extends object>(
-  method: protoLoader.MethodDefinition<object, object>,
-): (request: Request) => Buffer {
-  return (request) => method.requestSerialize(request);
-}
-
-function responseDeserializer<Response>(
-  method: protoLoader.MethodDefinition<object, object>,
-  parse: (value: unknown) => Response,
-): (bytes: Buffer) => Response {
-  return (bytes) => parse(method.responseDeserialize(bytes));
 }
 
 export class CredentialClient implements CredentialGrpcClient {
@@ -41,7 +28,7 @@ export class CredentialClient implements CredentialGrpcClient {
   ): void {
     this.client.makeUnaryRequest(
       this.methods.save.path,
-      requestSerializer<SaveCredentialsRequest>(this.methods.save),
+      this.methods.save.requestSerialize,
       responseDeserializer(this.methods.save, parseCredentialSaveResult),
       request,
       metadata,
@@ -56,7 +43,7 @@ export class CredentialClient implements CredentialGrpcClient {
   ): void {
     this.client.makeUnaryRequest(
       this.methods.get.path,
-      requestSerializer<PlatformRequest>(this.methods.get),
+      this.methods.get.requestSerialize,
       responseDeserializer(this.methods.get, parseCredentialInfo),
       request,
       metadata,
@@ -71,7 +58,7 @@ export class CredentialClient implements CredentialGrpcClient {
   ): void {
     this.client.makeUnaryRequest(
       this.methods.delete.path,
-      requestSerializer<PlatformRequest>(this.methods.delete),
+      this.methods.delete.requestSerialize,
       responseDeserializer(this.methods.delete, () => undefined),
       request,
       metadata,

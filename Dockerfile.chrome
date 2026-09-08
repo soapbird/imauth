@@ -2,10 +2,21 @@ FROM kasmweb/chromium:1.18.0
 
 USER root
 
+# The Kasm base keeps only en-US; locale resources must match its Chromium build.
+RUN test "$(dpkg-query -W -f='${Version}' chromium)" = "139.0.7258.154-1~deb12u1" \
+    && curl -fsSL --retry 3 https://snapshot.debian.org/file/ebe127d07ab40c8726b94731a5cfc3bfa92de72e -o /tmp/chromium-l10n.deb \
+    && echo "c3bbd8b572846e611c0e7b1ad74e07aa1f14a1606587b7f5655cca78d0846442  /tmp/chromium-l10n.deb" | sha256sum -c - \
+    && dpkg-deb --fsys-tarfile /tmp/chromium-l10n.deb | tar -xOf - ./usr/lib/chromium/locales/ko.pak > /usr/lib/chromium/locales/ko.pak \
+    && rm /tmp/chromium-l10n.deb
+
 COPY scripts/chrome-entrypoint.sh /chrome-entrypoint.sh
+COPY scripts/chrome-runtime.py /scripts/chrome-runtime.py
 RUN chmod +x /chrome-entrypoint.sh
 
-ENV VNC_RESOLUTION=1366x768 \
+ENV LANG=ko_KR.UTF-8 \
+    LANGUAGE=ko_KR:ko \
+    LC_ALL=ko_KR.UTF-8 \
+    VNC_RESOLUTION=1366x768 \
     MAX_FRAME_RATE=24 \
     VNC_PW=imauth-local-only \
     VNCOPTIONS="-PreferBandwidth -DynamicQualityMin=4 -DynamicQualityMax=6 -SecurityTypes None -DisableBasicAuth 1 -sslOnly 0 -AcceptSetDesktopSize 1 -MaxVideoResolution 1280x720" \
@@ -17,13 +28,13 @@ ENV VNC_RESOLUTION=1366x768 \
     KASM_SVC_PRINTER=0 \
     KASM_SVC_SMARTCARD=0 \
     LAUNCH_URL=about:blank \
-    APP_ARGS="--start-maximized --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --user-data-dir=/home/kasm-user/.config/chromium --lang=ko-KR"
+    APP_ARGS="--start-maximized --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --user-data-dir=/home/kasm-user/.config/chromium --lang=ko-KR --accept-lang=ko-KR,ko,en-US,en"
 
 EXPOSE 9223 6901
 
 USER 0:0
 
 HEALTHCHECK --interval=3s --timeout=5s --retries=10 \
-  CMD curl -f "http://$(hostname -i | awk '{print $1}'):9223/json/version" || exit 1
+  CMD curl -f "http://$(hostname -i | awk '{print $1}'):9223/healthz" || exit 1
 
 ENTRYPOINT ["/bin/bash", "-lc", "/chrome-entrypoint.sh"]

@@ -1,6 +1,6 @@
 # imauth
 
-Browser-automation-based authentication service with gRPC API. Supports headless login flows and user-driven Kasm browser viewer for 2FA, CAPTCHA, and other interactive challenges.
+Browser-based authentication service with gRPC API. Login uses a user-driven Chromium and Kasm browser viewer for 2FA, CAPTCHA, and other interactive challenges.
 
 ## Quick Start (Docker Compose)
 
@@ -47,11 +47,12 @@ initial viewer URL as a secret until its first redirect.
 
 | Port | Service        | Purpose                        |
 | ---- | -------------- | ------------------------------ |
-| 9222 | `chrome-0`     | Chrome DevTools Protocol (CDP) |
+| 9223 | `chrome-0`     | On-demand CDP relay for the server |
+| 9222 | `chrome-0` loopback | Chromium CDP, available while the desktop is running |
 
 ## Environment Variables
 
-All environment variables use the `IMAUTH_` prefix.
+Application environment variables use the `IMAUTH_` prefix. The Chrome image also accepts Kasm settings such as `VNC_RESOLUTION`.
 
 | Variable                       | Default     | Description                                      |
 | ------------------------------ | ----------- | ------------------------------------------------ |
@@ -64,6 +65,38 @@ All environment variables use the `IMAUTH_` prefix.
 | `IMAUTH_VIEWER_SCHEME`         | `http`      | Public viewer URL scheme (`https` behind TLS)     |
 | `IMAUTH_VIEWER_COOKIE_SECURE`  | —           | Set to `Secure` behind an HTTPS viewer endpoint  |
 | `IMAUTH_DATA`                  | `../imauth-data` | Host directory for persisted chrome/server data |
+| `IMAUTH_BROWSER_IDLE_TIMEOUT_SECS` | `60` | Stop Chromium and the desktop after the last CDP connection is released |
+| `IMAUTH_BROWSER_ACQUIRE_TIMEOUT_SECS` | `30` | Maximum wait for an occupied browser slot |
+| `IMAUTH_CDP_CONNECT_TIMEOUT_SECS` | `30` | Connection budget per Chrome instance, including cold startup |
+| `IMAUTH_PAGE_TIMEOUT_SECS` | `30` | Login page navigation timeout |
+| `IMAUTH_LOGIN_TIMEOUT_SECS` | `300` | User login budget starting at `WaitingForUser`; persistence has a separate five-second budget |
+| `IMAUTH_MAX_PENDING_LOGINS` | `8` | Extra admitted logins beyond the number of configured CDP endpoints |
+
+### Browser lifecycle and login limits
+
+The Chrome sidecar starts only a small CDP supervisor. The first CDP request starts
+Chromium, KasmVNC, and the desktop; simultaneous requests share that startup.
+`GET :9223/healthz` checks the supervisor without starting Chrome. After the last
+CDP connection closes and the idle interval expires, the desktop stops and the
+mounted Chromium profile remains available for the next login. A viewer tab alone
+does not keep a completed login alive; start a login through the API before opening
+its viewer URL.
+
+Login preparation is bounded separately from user input: slot wait + one connection
+budget per configured endpoint + two page budgets (target creation and navigation).
+Each long operation observes stream disconnects and session cancellation (checked
+every 250 ms). Browser cleanup and terminal-state writes have separate five-second
+limits. The server rejects excess requests with gRPC `RESOURCE_EXHAUSTED`; clients
+can retry after another login finishes. Pool size follows `IMAUTH_CDP_URLS` (one
+active login per endpoint); the legacy TOML `max_pool_size` field does not provision
+or limit Chrome containers.
+
+A dropped CDP connection is reattached to the held slot and the same tab, preserving
+in-progress form input and the viewer URL. If the browser process or target itself
+is gone, the attempt fails. Login commits encrypted cookies and the terminal session state in one SQLite
+transaction. A storage error or a deleted session rolls back the entire login
+write; only a successful commit produces `Connected`.
+
 
 
 ## Running Multiple Instances on One Host
@@ -80,7 +113,8 @@ Update `.env` accordingly before starting each stack.
 
 ## Container Images
 
-Release images are published to `docker.lowapple.io` on every `v*` tag:
+When published, container images use the version from `VERSION` without a leading
+`v`:
 
 | Image                       | Contents                               |
 | --------------------------- | -------------------------------------- |
@@ -90,9 +124,9 @@ Release images are published to `docker.lowapple.io` on every `v*` tag:
 
 ```bash
 # Pull a specific release (or :latest)
-docker pull docker.lowapple.io/imauth:v0.7.1
-docker pull docker.lowapple.io/imauth-chrome:v0.7.1
-docker pull docker.lowapple.io/imauth-chrome-proxy:v0.7.1
+docker pull docker.lowapple.io/imauth:0.8.0
+docker pull docker.lowapple.io/imauth-chrome:0.8.0
+docker pull docker.lowapple.io/imauth-chrome-proxy:0.8.0
 ```
 
 Local image builds use the Makefile:
@@ -115,7 +149,7 @@ Release, so install it directly without cloning or running `protoc`:
 
 ```bash
 # Replace the tag/version with the one from the Releases page
-pip install https://github.com/imyounjs/imauth/releases/download/v0.7.0/imauth-0.7.0-py3-none-any.whl
+pip install https://github.com/imyounjs/imauth/releases/download/v0.8.0/imauth-0.8.0-py3-none-any.whl
 ```
 
 ```python
@@ -138,7 +172,7 @@ shell without installing anything permanently:
 
 ```bash
 # Point uvx at the release wheel; everything after `imauth` is the CLI
-WHL=https://github.com/imyounjs/imauth/releases/download/v0.7.0/imauth-0.7.0-py3-none-any.whl
+WHL=https://github.com/imyounjs/imauth/releases/download/v0.8.0/imauth-0.8.0-py3-none-any.whl
 
 export IMAUTH_URL=localhost:6100
 export IMAUTH_API_KEY=<key>
@@ -198,7 +232,10 @@ in the browser.
 
 ## Development
 
-See [`AGENTS.md`](AGENTS.md) for build commands, testing guidelines, and project conventions.
+Provider onboarding evidence requirements are maintained in
+[`.imrule/AGENTS.md`](.imrule/AGENTS.md).
 
 Run `make install-hooks` once after cloning. The pre-commit hook runs `make quality`,
 which checks Rust, Python SDK, and TypeScript SDK linting and formatting.
+`make test` runs the Rust workspace and the Chrome runtime supervisor tests; install
+pytest first, or run only the supervisor suite with `make test-chrome-runtime`.
