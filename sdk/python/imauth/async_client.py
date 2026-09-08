@@ -1,6 +1,7 @@
 """Async imauth client."""
 
 from collections.abc import AsyncIterator
+from contextlib import suppress
 
 import grpc
 import grpc.aio
@@ -14,7 +15,7 @@ from imauth._converters import (
     platform_to_proto,
     status_response_to_event,
 )
-from imauth.exceptions import rpc_error_to_imauth, translate_rpc_errors
+from imauth.exceptions import ImauthNotFoundError, translate_rpc_errors
 from imauth.models import AuthEvent, Cookie, CredentialInfo, Platform, SessionValidation
 from imauth.v1 import (
     auth_pb2,
@@ -89,23 +90,17 @@ class AsyncImauthClient:
         """Get current status of a session. Returns None if the session is unknown."""
         stub = auth_pb2_grpc.AuthServiceStub(self._channel)
         req = auth_pb2.StatusRequest(session_id=session_id)
-        try:
+        with suppress(ImauthNotFoundError), translate_rpc_errors():
             resp = await stub.GetStatus(req, metadata=self._meta())
             return status_response_to_event(resp, session_id)
-        except grpc.aio.AioRpcError as e:
-            if e.code() == grpc.StatusCode.NOT_FOUND:
-                return None
-            raise rpc_error_to_imauth(e) from e
+        return None
 
     async def cancel(self, session_id: str) -> None:
         """Cancel an in-flight session. Idempotent — NOT_FOUND is suppressed."""
         stub = auth_pb2_grpc.AuthServiceStub(self._channel)
         req = auth_pb2.CancelRequest(session_id=session_id)
-        try:
+        with suppress(ImauthNotFoundError), translate_rpc_errors():
             await stub.Cancel(req, metadata=self._meta())
-        except grpc.aio.AioRpcError as e:
-            if e.code() != grpc.StatusCode.NOT_FOUND:
-                raise rpc_error_to_imauth(e) from e
 
     # --- session ----------------------------------------------------------
 
@@ -125,7 +120,7 @@ class AsyncImauthClient:
         return [cookie_from_proto(c) for c in resp.cookies]
 
     async def update_cookies(self, platform: Platform, cookies: list[Cookie]) -> None:
-        """Replace stored cookies for a platform."""
+        """Save cookies, preserving existing cookies omitted from the update."""
         stub = session_pb2_grpc.SessionServiceStub(self._channel)
         req = session_pb2.UpdateCookiesRequest(
             platform=platform_to_proto(platform),
@@ -190,7 +185,7 @@ class AsyncImauthClient:
         """Get stored credential info for a platform. Returns None on NOT_FOUND."""
         stub = credential_pb2_grpc.CredentialServiceStub(self._channel)
         req = credential_pb2.GetCredentialRequest(platform=platform_to_proto(platform))
-        try:
+        with suppress(ImauthNotFoundError), translate_rpc_errors():
             resp = await stub.Get(req, metadata=self._meta())
             return CredentialInfo(
                 platform=Platform(platform_from_proto(resp.platform)),
@@ -198,10 +193,7 @@ class AsyncImauthClient:
                 has_password=resp.has_password,
                 twofa_method=resp.twofa_method,
             )
-        except grpc.aio.AioRpcError as e:
-            if e.code() == grpc.StatusCode.NOT_FOUND:
-                return None
-            raise rpc_error_to_imauth(e) from e
+        return None
 
     async def delete_credentials(self, platform: Platform) -> bool:
         """Delete stored credentials for a platform. Returns True if existed."""
@@ -209,13 +201,10 @@ class AsyncImauthClient:
         req = credential_pb2.DeleteCredentialRequest(
             platform=platform_to_proto(platform)
         )
-        try:
+        with suppress(ImauthNotFoundError), translate_rpc_errors():
             await stub.Delete(req, metadata=self._meta())
             return True
-        except grpc.aio.AioRpcError as e:
-            if e.code() == grpc.StatusCode.NOT_FOUND:
-                return False
-            raise rpc_error_to_imauth(e) from e
+        return False
 
     async def close(self) -> None:
         await self._channel.close()
