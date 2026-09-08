@@ -24,7 +24,7 @@ pub(crate) struct Cli {
     #[arg(short, long, default_value = "http://localhost:6100")]
     pub(crate) server: String,
 
-    #[arg(short = 'k', long, env = "IMAUTH_API_KEY")]
+    #[arg(short = 'k', long, env = "IMAUTH_API_KEY", hide_env_values = true)]
     pub(crate) api_key: Option<String>,
 
     #[arg(long, env = "IMAUTH_TLS_CA")]

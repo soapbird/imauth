@@ -39,6 +39,21 @@ fn cli_accepts_tls_ca_and_domain_options() {
 }
 
 #[test]
+fn cli_help_hides_api_key_environment_value() {
+    let synthetic_key = "SYNTHETIC_API_KEY_FOR_HELP_REGRESSION";
+    std::env::set_var("IMAUTH_API_KEY", synthetic_key);
+
+    let error = match Cli::try_parse_from(["imauth", "--help"]) {
+        Ok(_) => panic!("help should exit parsing"),
+        Err(error) => error,
+    };
+    std::env::remove_var("IMAUTH_API_KEY");
+
+    let rendered = error.to_string();
+    assert!(!rendered.contains(synthetic_key));
+}
+
+#[test]
 fn cli_exposes_cancel_validate_and_connections_commands() {
     let cancel = Cli::try_parse_from(["imauth", "cancel", "--session-id", "session-1"])
         .expect("valid cancel command");
