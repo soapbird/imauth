@@ -23,6 +23,7 @@ HEADER_LIMIT, HEADER_TIMEOUT_SECS = 65_536, 2.0
 UPSTREAM_CONNECT_TIMEOUT_SECS, DESKTOP_STOP_TIMEOUT_SECS = 10.0, 5.0
 DESKTOP_STARTUP_TIMEOUT_SECS: Final = 25.0
 UPSTREAM_PROBE_TIMEOUT_SECS, PROCESS_POLL_SECS, PROCESS_WAIT_SECS = 0.2, 0.1, 1.0
+STARTUP_FAILURE_COOLDOWN_SECS: Final = 5.0
 HEALTH_RESPONSE: Final = b"HTTP/1.1 200 OK\r\nContent-Length:2\r\n\r\nOK"
 
 
@@ -41,6 +42,8 @@ class BrowserLifecycle:
         self._running = False
         self._idle_since = time.monotonic()
         self._closing = False
+        self._starting = False
+        self._start_failure: tuple[float, OSError] | None = None
         self._monitor = threading.Thread(target=self._monitor_idle, daemon=True)
         self._monitor.start()
 
@@ -48,12 +51,35 @@ class BrowserLifecycle:
         with self._condition:
             self._active_leases += 1
             try:
-                self._start()
+                self._start_shared()
             except OSError:
                 self._active_leases -= 1
                 self._running = False
                 raise
             self._running = True
+
+    def _start_shared(self) -> None:
+        # Single-flight startup with failure cooldown. Without this, every
+        # queued relay request runs the full startup serially after a
+        # failure, and a request flood during an outage turns into a
+        # restart storm that delays recovery.
+        while self._starting:
+            self._condition.wait()
+        failure = self._start_failure
+        if failure is not None:
+            failed_at, error = failure
+            if time.monotonic() - failed_at < STARTUP_FAILURE_COOLDOWN_SECS:
+                raise error
+            self._start_failure = None
+        self._starting = True
+        try:
+            self._start()
+        except OSError as error:
+            self._start_failure = (time.monotonic(), error)
+            raise
+        finally:
+            self._starting = False
+            self._condition.notify_all()
 
     def release(self) -> None:
         with self._condition:
@@ -185,16 +211,18 @@ class DesktopProcess:
         self._user_uid = user_uid
         self._startup_timeout = startup_timeout
         self._process: subprocess.Popen[bytes] | None = None
+        self._known_pids: list[int] = []
 
     def start(self) -> None:
-        if self._process is not None and self._process.poll() is None:
-            try:
-                with socket.create_connection(
-                    ("127.0.0.1", 9222), timeout=UPSTREAM_PROBE_TIMEOUT_SECS
-                ):
-                    return
-            except OSError:
-                self.stop()
+        if self._cdp_ready():
+            # A desktop already serves CDP — ours, or a survivor whose
+            # supervisor (runuser) died. Adopt it: deleting the live
+            # profile's Singleton locks and launching a second desktop
+            # corrupts the profile, and the readiness probe cannot tell
+            # the two instances apart.
+            return
+        if self._owned_pids():
+            self.stop()
         for lock_path in Path("/home/kasm-user/.config/chromium").glob("Singleton*"):
             try:
                 lock_path.unlink()
@@ -207,15 +235,21 @@ class DesktopProcess:
             if self._process.poll() is not None:
                 self.stop()
                 raise OSError("desktop startup exited before CDP became ready")
-            try:
-                with socket.create_connection(
-                    ("127.0.0.1", 9222), timeout=UPSTREAM_PROBE_TIMEOUT_SECS
-                ):
-                    return
-            except OSError:
-                time.sleep(PROCESS_POLL_SECS)
+            if self._cdp_ready():
+                self._known_pids = self._owned_pids()
+                return
+            time.sleep(PROCESS_POLL_SECS)
         self.stop()
         raise OSError("desktop CDP did not become ready before timeout")
+
+    def _cdp_ready(self) -> bool:
+        try:
+            with socket.create_connection(
+                ("127.0.0.1", 9222), timeout=UPSTREAM_PROBE_TIMEOUT_SECS
+            ):
+                return True
+        except OSError:
+            return False
 
     def stop(self) -> None:
         if self._process is not None and self._process.poll() is None:
@@ -232,6 +266,7 @@ class DesktopProcess:
                 self._process.kill()
                 self._process.wait()
         self._process = None
+        self._known_pids = []
 
     def _signal_owned(self, signal_number: signal.Signals) -> None:
         for pid in self._owned_pids():
@@ -241,19 +276,45 @@ class DesktopProcess:
                 continue
 
     def _owned_pids(self) -> list[int]:
-        pids: list[int] = []
+        # Signal only the desktop's process tree (the supervisor, its
+        # descendants, and pids recorded at startup, which keeps orphaned
+        # children reachable after a supervisor death). A UID-wide scan
+        # would kill unrelated kasm-user processes sharing the container.
+        roots: set[int] = set(self._known_pids)
+        if self._process is not None and self._process.poll() is None:
+            roots.add(self._process.pid)
+        if not roots:
+            return []
+        ppid_of: dict[int, int] = {}
+        alive: set[int] = set()
         for status_path in Path("/proc").glob("[0-9]*/status"):
             try:
                 status_lines = status_path.read_text().splitlines()
-                owner_uid = status_path.parent.stat().st_uid
                 state_line = next(
                     line for line in status_lines if line.startswith("State:")
                 )
+                ppid_line = next(
+                    line for line in status_lines if line.startswith("PPid:")
+                )
             except (OSError, StopIteration):
                 continue
-            if owner_uid == self._user_uid and "Z" not in state_line.split()[1]:
-                pids.append(int(status_path.parent.name))
-        return pids
+            if "Z" in state_line.split()[1]:
+                continue
+            pid = int(status_path.parent.name)
+            alive.add(pid)
+            ppid_of[pid] = int(ppid_line.split()[1])
+        owned: list[int] = []
+        for pid in alive:
+            current = pid
+            while True:
+                if current in roots:
+                    owned.append(pid)
+                    break
+                parent = ppid_of.get(current, 0)
+                if parent <= 1 or parent == current:
+                    break
+                current = parent
+        return owned
 
 
 def reap_children(_signum: int, _frame: FrameType | None) -> None:

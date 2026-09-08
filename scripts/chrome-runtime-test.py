@@ -14,6 +14,9 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
+from unittest import mock
+
+import pytest
 
 
 def load_runtime() -> ModuleType:
@@ -145,3 +148,104 @@ def test_given_two_relay_servers_when_created_then_handlers_are_isolated() -> No
         second.server_close()
         first_lifecycle.close()
         second_lifecycle.close()
+
+
+def test_given_orphaned_desktop_when_starting_then_locks_stay_and_no_relaunch() -> (
+    None
+):
+    runtime = load_runtime()
+    desktop = runtime.DesktopProcess(1000)
+    dead_supervisor = mock.Mock()
+    dead_supervisor.poll.return_value = 129
+    desktop._process = dead_supervisor
+
+    with (
+        mock.patch.object(runtime.socket, "create_connection", return_value=mock.MagicMock()),
+        mock.patch.object(runtime.Path, "glob") as glob,
+        mock.patch.object(runtime.subprocess, "Popen") as popen,
+    ):
+        desktop.start()
+
+    glob.assert_not_called()
+    popen.assert_not_called()
+
+
+def test_given_half_dead_desktop_when_starting_then_stop_runs_before_relaunch() -> (
+    None
+):
+    runtime = load_runtime()
+    desktop = runtime.DesktopProcess(1000)
+    stops: list[str] = []
+    desktop.stop = lambda: stops.append("stop")
+    launched = mock.Mock()
+    launched.poll.return_value = None
+
+    with (
+        mock.patch.object(
+            runtime.socket,
+            "create_connection",
+            side_effect=[OSError(), mock.MagicMock()],
+        ),
+        mock.patch.object(runtime.DesktopProcess, "_owned_pids", return_value=[123]),
+        mock.patch.object(runtime.Path, "glob", return_value=[]),
+        mock.patch.object(runtime.subprocess, "Popen", return_value=launched),
+    ):
+        desktop.start()
+
+    assert stops == ["stop"]
+
+
+def test_given_failed_startup_when_reacquiring_then_cooldown_fails_fast() -> None:
+    runtime = load_runtime()
+    starts = 0
+
+    def start() -> None:
+        nonlocal starts
+        starts += 1
+        raise OSError("boom")
+
+    lifecycle = runtime.BrowserLifecycle(start, lambda: None, idle_timeout=60)
+    try:
+        with pytest.raises(OSError):
+            lifecycle.acquire()
+        with pytest.raises(OSError):
+            lifecycle.acquire()
+        assert starts == 1
+    finally:
+        lifecycle.close()
+
+
+def test_given_concurrent_failed_startups_when_acquiring_then_start_runs_once() -> (
+    None
+):
+    runtime = load_runtime()
+    starts = 0
+    gate = threading.Event()
+
+    def start() -> None:
+        nonlocal starts
+        starts += 1
+        gate.wait(timeout=2)
+        raise OSError("boom")
+
+    lifecycle = runtime.BrowserLifecycle(start, lambda: None, idle_timeout=60)
+    errors: list[OSError] = []
+
+    def worker() -> None:
+        try:
+            lifecycle.acquire()
+        except OSError as error:
+            errors.append(error)
+
+    threads = [threading.Thread(target=worker) for _ in range(3)]
+    try:
+        for thread in threads:
+            thread.start()
+        time.sleep(0.1)
+        gate.set()
+        for thread in threads:
+            thread.join(timeout=2)
+        assert starts == 1
+        assert len(errors) == 3
+    finally:
+        lifecycle.close()

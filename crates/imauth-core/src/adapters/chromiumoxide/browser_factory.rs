@@ -15,6 +15,7 @@ use tokio::task::JoinHandle;
 
 const SESSION_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 const TARGET_READY_RETRY_INTERVAL: Duration = Duration::from_millis(10);
+const TARGET_READY_MAX_ATTEMPTS: u32 = 100;
 
 /// A single Chrome instance with its own CDP connection, semaphore, and viewer URL.
 pub struct ChromeSlot {
@@ -82,27 +83,37 @@ impl ChromeSlot {
             })?
             .result
             .target_infos;
-        let pending_targets = if let Some(target_id) = target_id {
+        let (pending_targets, require_ready) = if let Some(target_id) = target_id {
             if !targets.iter().any(|target| &target.target_id == target_id) {
                 return Err(ImauthError::Browser(
                     "Owned login target no longer exists".into(),
                 ));
             }
-            vec![target_id.clone()]
+            (vec![target_id.clone()], true)
         } else {
-            targets
-                .iter()
-                .filter(|target| target.r#type == "page")
-                .map(|target| target.target_id.clone())
-                .collect()
+            (
+                targets
+                    .iter()
+                    .filter(|target| target.r#type == "page")
+                    .map(|target| target.target_id.clone())
+                    .collect(),
+                false,
+            )
         };
         for target_id in pending_targets {
+            let mut attempts = 0u32;
             loop {
                 let ready = match browser.get_page(target_id.clone()).await {
                     Ok(page) => page.url().await.is_ok(),
                     Err(_) => false,
                 };
                 if ready {
+                    break;
+                }
+                attempts += 1;
+                if !require_ready && attempts >= TARGET_READY_MAX_ATTEMPTS {
+                    // An unrelated tab that closed or never became ready must
+                    // not hold the browser slot until the connect timeout.
                     break;
                 }
                 tokio::time::sleep(TARGET_READY_RETRY_INTERVAL).await;
@@ -346,13 +357,20 @@ impl ChromiumOxideBrowserSession {
     }
 
     async fn shutdown(&mut self) -> Result<()> {
-        cleanup_session(
+        // Spawn cleanup detached so a caller-side timeout (login.rs wraps
+        // close() in CLEANUP_TIMEOUT) cannot strand an owned login target:
+        // the task finishes closing the tab even when the await is dropped.
+        let cleanup = tokio::spawn(cleanup_session(
             self.connection.take(),
             self.target_id.take(),
             self.page_creation.take(),
             self.permit.take(),
-        )
-        .await
+            self.cdp_url.clone(),
+            self.connect_timeout,
+        ));
+        cleanup.await.map_err(|error| {
+            ImauthError::Browser(format!("Browser cleanup task failed: {error}"))
+        })?
     }
 }
 
@@ -361,6 +379,8 @@ async fn cleanup_session(
     target_id: Option<TargetId>,
     page_creation: Option<JoinHandle<chromiumoxide::error::Result<TargetId>>>,
     _permit: Option<OwnedSemaphorePermit>,
+    cdp_url: String,
+    connect_timeout: Duration,
 ) -> Result<()> {
     let pending_target = match page_creation {
         Some(mut task) => match tokio::time::timeout(SESSION_CLOSE_TIMEOUT, &mut task).await {
@@ -383,6 +403,26 @@ async fn cleanup_session(
     };
 
     let owned_target = target_id.or(pending_target);
+
+    // A failed reconnect leaves an owned target with no connection. Open a
+    // throwaway connection solely to close it, or the login tab stays alive
+    // in the shared browser and is visible to the next slot holder.
+    let mut connection = connection;
+    if connection.is_none() && owned_target.is_some() {
+        match tokio::time::timeout(
+            connect_timeout,
+            ChromeSlot::connect(&cdp_url, owned_target.as_ref()),
+        )
+        .await
+        {
+            Ok(Ok(fresh)) => connection = Some(fresh),
+            Ok(Err(error)) => {
+                tracing::warn!(%error, "reconnect-to-close failed during session cleanup")
+            }
+            Err(_) => tracing::warn!("reconnect-to-close timed out during session cleanup"),
+        }
+    }
+
     let close_result = if let (Some(connection), Some(target_id)) = (&connection, owned_target) {
         tokio::time::timeout(
             SESSION_CLOSE_TIMEOUT,
@@ -502,7 +542,7 @@ impl BrowserSession for ChromiumOxideBrowserSession {
 
 impl Drop for ChromiumOxideBrowserSession {
     fn drop(&mut self) {
-        if self.connection.is_none() && self.page_creation.is_none() {
+        if self.connection.is_none() && self.page_creation.is_none() && self.target_id.is_none() {
             return;
         }
         let Ok(handle) = tokio::runtime::Handle::try_current() else {
@@ -519,8 +559,18 @@ impl Drop for ChromiumOxideBrowserSession {
         let target_id = self.target_id.take();
         let page_creation = self.page_creation.take();
         let permit = self.permit.take();
+        let cdp_url = self.cdp_url.clone();
+        let connect_timeout = self.connect_timeout;
         handle.spawn(async move {
-            if let Err(error) = cleanup_session(connection, target_id, page_creation, permit).await
+            if let Err(error) = cleanup_session(
+                connection,
+                target_id,
+                page_creation,
+                permit,
+                cdp_url,
+                connect_timeout,
+            )
+            .await
             {
                 tracing::warn!(%error, "browser session cleanup failed");
             }

@@ -189,9 +189,35 @@ impl LoginUseCase {
                     if let AuthCheckpoint::Connected(cookies) = classify_auth_state(raw, platform) {
                         session
                             .transition(SessionState::Connected, Some("Login successful".into()));
-                        control
-                            .run(self.cookies.save_login(session, &cookies))
-                            .await?;
+                        // Persist outside the user-login deadline: cancelling an
+                        // in-flight SQLite commit can store cookies under a
+                        // session the error path then marks failed.
+                        match tokio::time::timeout(
+                            CLEANUP_TIMEOUT,
+                            self.cookies.save_login(session, &cookies),
+                        )
+                        .await
+                        {
+                            Ok(result) => result.map_err(LoginFailure::from)?,
+                            Err(_) => {
+                                let stored = tokio::time::timeout(
+                                    CLEANUP_TIMEOUT,
+                                    self.sessions.get(&session.id),
+                                )
+                                .await;
+                                match stored {
+                                    Ok(Ok(Some(stored)))
+                                        if stored.state == SessionState::Connected => {}
+                                    _ => {
+                                        return Err(LoginFailure::Operation(
+                                            crate::ImauthError::Database(
+                                                "login persistence timed out".into(),
+                                            ),
+                                        ));
+                                    }
+                                }
+                            }
+                        }
                         return Ok(cookies);
                     }
                 }
