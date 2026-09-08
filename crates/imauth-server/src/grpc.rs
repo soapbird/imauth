@@ -35,14 +35,14 @@ fn map_auth_err(err: imauth_core::ImauthError) -> tonic::Status {
     }
 }
 
-fn platform_from_proto(p: i32) -> Option<Platform> {
-    match ProtoPlatform::try_from(p).ok()? {
-        ProtoPlatform::Instagram => Some(Platform::Instagram),
-        ProtoPlatform::Threads => Some(Platform::Threads),
-        ProtoPlatform::Naver => Some(Platform::Naver),
-        ProtoPlatform::Novelpia => Some(Platform::Novelpia),
-        ProtoPlatform::Munpia => Some(Platform::Munpia),
-        ProtoPlatform::Unspecified => None,
+fn platform_from_proto(p: i32) -> Result<Platform, Status> {
+    match ProtoPlatform::try_from(p).unwrap_or(ProtoPlatform::Unspecified) {
+        ProtoPlatform::Instagram => Ok(Platform::Instagram),
+        ProtoPlatform::Threads => Ok(Platform::Threads),
+        ProtoPlatform::Naver => Ok(Platform::Naver),
+        ProtoPlatform::Novelpia => Ok(Platform::Novelpia),
+        ProtoPlatform::Munpia => Ok(Platform::Munpia),
+        ProtoPlatform::Unspecified => Err(Status::invalid_argument("Unknown platform")),
     }
 }
 
@@ -118,8 +118,7 @@ impl AuthService for AuthGrpcService {
         request: Request<LoginRequest>,
     ) -> Result<Response<Self::LoginStream>, Status> {
         let req = request.into_inner();
-        let platform = platform_from_proto(req.platform)
-            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
+        let platform = platform_from_proto(req.platform)?;
 
         let container = self.container.clone();
         let (tx, rx) = mpsc::channel::<LoginEvent>(10);
@@ -196,8 +195,7 @@ impl SessionService for SessionGrpcService {
         request: Request<GetCookiesRequest>,
     ) -> Result<Response<CookieList>, Status> {
         let req = request.into_inner();
-        let platform = platform_from_proto(req.platform)
-            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
+        let platform = platform_from_proto(req.platform)?;
         let domains = if req.domains.is_empty() {
             None
         } else {
@@ -217,8 +215,7 @@ impl SessionService for SessionGrpcService {
         request: Request<UpdateCookiesRequest>,
     ) -> Result<Response<CookieList>, Status> {
         let req = request.into_inner();
-        let platform = platform_from_proto(req.platform)
-            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
+        let platform = platform_from_proto(req.platform)?;
         let cookies: Vec<Cookie> = req.cookies.iter().map(proto_cookie_from).collect();
 
         self.container
@@ -243,8 +240,7 @@ impl SessionService for SessionGrpcService {
         request: Request<ExportRequest>,
     ) -> Result<Response<NetscapeExport>, Status> {
         let req = request.into_inner();
-        let platform = platform_from_proto(req.platform)
-            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
+        let platform = platform_from_proto(req.platform)?;
 
         let content = self.container.export_netscape.execute(platform).await;
         let content = content.map_err(map_auth_err)?;
@@ -257,8 +253,7 @@ impl SessionService for SessionGrpcService {
         request: Request<ValidateRequest>,
     ) -> Result<Response<ValidationResult>, Status> {
         let req = request.into_inner();
-        let platform = platform_from_proto(req.platform)
-            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
+        let platform = platform_from_proto(req.platform)?;
 
         let outcome = self.container.validate_session.execute(platform).await;
         let outcome = outcome.map_err(map_auth_err)?;
@@ -300,8 +295,7 @@ impl CredentialService for CredentialGrpcService {
         request: Request<SaveCredentialRequest>,
     ) -> Result<Response<CredentialResponse>, Status> {
         let req = request.into_inner();
-        let platform = platform_from_proto(req.platform)
-            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
+        let platform = platform_from_proto(req.platform)?;
 
         let twofa = if req.twofa_method.is_empty() {
             None
@@ -328,8 +322,7 @@ impl CredentialService for CredentialGrpcService {
         request: Request<GetCredentialRequest>,
     ) -> Result<Response<CredentialInfo>, Status> {
         let req = request.into_inner();
-        let platform = platform_from_proto(req.platform)
-            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
+        let platform = platform_from_proto(req.platform)?;
 
         let cred = self.container.get_credential.execute(platform).await;
         let cred = cred.map_err(map_auth_err)?;
@@ -350,8 +343,7 @@ impl CredentialService for CredentialGrpcService {
         request: Request<DeleteCredentialRequest>,
     ) -> Result<Response<CredentialResponse>, Status> {
         let req = request.into_inner();
-        let platform = platform_from_proto(req.platform)
-            .ok_or_else(|| Status::invalid_argument("Unknown platform"))?;
+        let platform = platform_from_proto(req.platform)?;
 
         let delete_result = self.container.delete_credential.execute(platform).await;
         delete_result.map_err(map_auth_err)?;
@@ -405,17 +397,20 @@ mod tests {
 
     #[test]
     fn platform_from_proto_known_values() {
-        assert!(matches!(platform_from_proto(1), Some(Platform::Instagram)));
-        assert!(matches!(platform_from_proto(2), Some(Platform::Threads)));
-        assert!(matches!(platform_from_proto(3), Some(Platform::Naver)));
-        assert!(matches!(platform_from_proto(4), Some(Platform::Novelpia)));
-        assert!(matches!(platform_from_proto(5), Some(Platform::Munpia)));
+        assert!(matches!(platform_from_proto(1), Ok(Platform::Instagram)));
+        assert!(matches!(platform_from_proto(2), Ok(Platform::Threads)));
+        assert!(matches!(platform_from_proto(3), Ok(Platform::Naver)));
+        assert!(matches!(platform_from_proto(4), Ok(Platform::Novelpia)));
+        assert!(matches!(platform_from_proto(5), Ok(Platform::Munpia)));
     }
 
     #[test]
-    fn platform_from_proto_unknown_returns_none() {
-        assert!(platform_from_proto(0).is_none());
-        assert!(platform_from_proto(99).is_none());
+    fn platform_from_proto_unknown_returns_invalid_argument() {
+        for value in [0, -1, 99, i32::MAX] {
+            let error = platform_from_proto(value).unwrap_err();
+            assert_eq!(error.code(), tonic::Code::InvalidArgument);
+            assert_eq!(error.message(), "Unknown platform");
+        }
     }
 
     #[test]
