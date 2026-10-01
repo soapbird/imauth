@@ -48,7 +48,7 @@ sdk/typescript/*.log
 .env
 
 # Local tool directories
-.codegraph/
+.codegraph
 .omo/
 .omx/
 .venv/
