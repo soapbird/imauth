@@ -250,7 +250,11 @@ class DesktopProcess:
             with socket.create_connection(
                 ("127.0.0.1", 9222), timeout=UPSTREAM_PROBE_TIMEOUT_SECS
             ) as probe:
-                probe.sendall(b"GET /json/version HTTP/1.0\r\n\r\n")
+                probe.sendall(
+                    b"GET /json/version HTTP/1.1\r\n"
+                    b"Host: 127.0.0.1:9222\r\n"
+                    b"Connection: close\r\n\r\n"
+                )
                 return b'"Browser"' in probe.recv(4096)
         except OSError:
             return False

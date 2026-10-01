@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-01
+
+### Fixed
+- Chromium 139가 HTTP/1.0 CDP 준비 요청을 거부해 브라우저 로그인이 시작되지 않던 문제를 수정했다.
+
 ## [0.8.0] - 2026-09-08
 
 ### Added

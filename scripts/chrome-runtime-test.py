@@ -157,6 +157,21 @@ def cdp_probe(body: bytes = b'{"Browser": "Chromium/139.0"}') -> mock.MagicMock:
     return probe
 
 
+def test_given_cdp_probe_when_checking_ready_then_http11_request_is_sent() -> None:
+    runtime = load_runtime()
+    desktop = runtime.DesktopProcess(1000)
+    probe = cdp_probe()
+
+    with mock.patch.object(runtime.socket, "create_connection", return_value=probe):
+        assert desktop._cdp_ready() is True
+
+    probe.sendall.assert_called_once_with(
+        b"GET /json/version HTTP/1.1\r\n"
+        b"Host: 127.0.0.1:9222\r\n"
+        b"Connection: close\r\n\r\n"
+    )
+
+
 def test_given_orphaned_desktop_when_starting_then_locks_stay_and_no_relaunch() -> (
     None
 ):
