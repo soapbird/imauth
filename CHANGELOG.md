@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - Chromium 139가 HTTP/1.0 CDP 준비 요청을 거부해 브라우저 로그인이 시작되지 않던 문제를 수정했다.
+- 다른 사이트의 PWA에서 연 로그인 뷰어가 인증 쿠키를 유지하지 못해 403을 표시하던 문제를 수정했다.
 
 ## [0.8.0] - 2026-09-08
 

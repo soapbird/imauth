@@ -130,7 +130,7 @@ if grep -Eiq '^Location: .*token=' "$headers"; then
   echo "redirect leaked the viewer token" >&2
   exit 1
 fi
-grep -Eiq '^Set-Cookie: imauth_viewer_token=.*; Path=/; HttpOnly; SameSite=Strict\r?$' "$headers"
+grep -Eiq '^Set-Cookie: imauth_viewer_token=.*; Path=/; HttpOnly; SameSite=Lax\r?$' "$headers"
 grep -Eiq '^Referrer-Policy: no-referrer\r?$' "$headers"
 grep -Eiq '^Content-Security-Policy: .*frame-ancestors '\''none'\''' "$headers"
 grep -Eiq '^X-Content-Type-Options: nosniff\r?$' "$headers"
@@ -178,6 +178,6 @@ docker run --rm -d --name "$secure_proxy" --network "$network" \
 secure_port=$(docker port "$secure_proxy" 8080/tcp | sed -n 's/.*://p')
 curl -sS -D "$headers" -o /dev/null \
   "http://127.0.0.1:$secure_port/index.html?token=$token"
-grep -Eiq '^Set-Cookie: imauth_viewer_token=.*; HttpOnly; SameSite=Strict; Secure\r?$' "$headers"
+grep -Eiq '^Set-Cookie: imauth_viewer_token=.*; HttpOnly; SameSite=Lax; Secure\r?$' "$headers"
 
 echo "compose and viewer proxy security contract: PASS"

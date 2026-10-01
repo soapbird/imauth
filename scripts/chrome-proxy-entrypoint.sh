@@ -42,7 +42,7 @@ map "\$viewer_query_authorized:\$viewer_cookie_authorized" \$viewer_authorized {
 
 map \$viewer_query_authorized \$viewer_set_cookie {
   default "";
-  1 "imauth_viewer_token=\$arg_token; Path=/; HttpOnly; SameSite=Strict${viewer_cookie_secure}";
+  1 "imauth_viewer_token=\$arg_token; Path=/; HttpOnly; SameSite=Lax${viewer_cookie_secure}";
 }
 
 map "\$uri:\$arg_enable_webp" \$viewer_webp_redirect {
